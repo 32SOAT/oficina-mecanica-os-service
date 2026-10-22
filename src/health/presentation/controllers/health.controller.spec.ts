@@ -12,7 +12,6 @@ describe('HealthController', () => {
   it('returns the health check result', () => {
     const payload = {
       status: 'ok' as const,
-      service: 'os-service',
       timestamp: '2023-10-01T12:00:00.000Z',
     };
     checkHealthUseCase.execute.mockReturnValue(payload);
