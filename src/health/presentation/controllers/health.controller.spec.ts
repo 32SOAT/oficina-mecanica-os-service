@@ -1,5 +1,4 @@
 import { HealthController } from './health.controller';
-import { CheckHealthUseCase } from '../../application/use-cases/check-health.use-case';
 import { HealthResponseDto } from '../dto/health-response.dto';
 
 describe('HealthController', () => {
@@ -16,9 +15,7 @@ describe('HealthController', () => {
     };
     checkHealthUseCase.execute.mockReturnValue(payload);
 
-    const controller = new HealthController(
-      checkHealthUseCase as unknown as CheckHealthUseCase,
-    );
+    const controller = new HealthController(checkHealthUseCase);
 
     expect(controller.check()).toEqual(
       HealthResponseDto.fromReadModel(payload),

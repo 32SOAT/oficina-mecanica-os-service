@@ -19,7 +19,7 @@ Há dois significados diferentes para a palavra serviço:
 
 ## Decisão
 
-Ficam três aplicações. Cada uma publica a própria API, sobe o próprio banco e não acessa o banco das outras. A OS orquestra o fluxo por HTTP. O header `x-saga-token` identifica essa chamada de serviço para serviço. Mercado Pago fica fora desta decisão.
+Ficam três aplicações. Cada uma publica a própria API, sobe o próprio banco e não acessa o banco das outras. A OS orquestra o fluxo por HTTP. O header `x-saga-token` identifica essa chamada de serviço para serviço. A cobrança da retirada é Checkout Transparente via Orders, feita pelo billing.
 
 ### OS Service
 
@@ -48,6 +48,7 @@ Dono do dinheiro combinado e do pagamento local.
 - Orçamento com o `valorTotal` já calculado pela OS: `GERADO`, `APROVADO` ou `REPROVADO`.
 - Pagamento da retirada: `PENDENTE`, `APROVADO` ou `RECUSADO`.
 - A OS só muda para `ENTREGUE` depois de consultar o pagamento e encontrá-lo `APROVADO`.
+- O billing cria a order no Mercado Pago com o token do cartão. O Access Token não sai do billing. Pagamento que fica pendente é atualizado por consulta ao Mercado Pago, não por webhook ([ADR 002](./002-consulta-ativa-do-pagamento.md)).
 
 ### Saga
 
@@ -63,9 +64,9 @@ O banco sobe no repositório da aplicação que o usa. `oficina-mecanica-infra-d
 | --- | --- | --- | --- |
 | OS | Postgres `oficina_os` | 5435 | migrations |
 | Billing | Postgres `oficina_billing` | 5433 | sincronizado na subida, por enquanto |
-| Execução | Postgres `oficina_execucao` | 5434 | sincronizado na subida, por enquanto |
+| Execução | DynamoDB `execucao` | 8000 | tabela criada na subida |
 
-A porta 5432 permanece com o banco do monólito. Na AWS, OS e billing seguem em Postgres. A execução passa para DynamoDB, que é o NoSQL exigido. Até lá, o contrato local da execução é o mesmo: etapa e status por `osId`.
+A porta 5432 permanece com o banco do monólito. OS e billing ficam em Postgres. A execução usa DynamoDB também no ambiente local, pela imagem `amazon/dynamodb-local`. A chave da tabela é `osId` + `etapa`. Na AWS, `DYNAMODB_ENDPOINT` sai da configuração e o mesmo código fala com a tabela real.
 
 Nenhum serviço abre conexão com o banco de outro. O que precisa cruzar a fronteira viaja no corpo HTTP: `osId`, etapa e `valorTotal`.
 
@@ -74,7 +75,7 @@ Nenhum serviço abre conexão com o banco de outro. O que precisa cruzar a front
 - Cada serviço pode mudar o próprio schema sem migrar o banco dos outros.
 - A OS continua o único lugar que responde "em que ponto está o carro".
 - O catálogo e o estoque continuam consistentes com o total do orçamento, porque os três são gravados na mesma transação.
-- A execução pode trocar Postgres por DynamoDB sem levar cliente, peça ou preço junto.
+- A execução já guarda só etapa e status, então a tabela DynamoDB não carrega cliente, peça ou preço.
 - Enquanto a chamada remota acontece depois do commit da OS, uma falha de rede deixa o status gravado e a etapa remota pendente. As criações remotas são idempotentes para permitir nova tentativa.
 - O requisito de 80% de cobertura da fase 4 ainda não está cumprido na OS: o domínio foi copiado sem a suíte antiga de testes.
 
@@ -90,4 +91,4 @@ Nenhum serviço abre conexão com o banco de outro. O que precisa cruzar a front
 
 ## Evolução prevista
 
-Mensageria (SQS), DynamoDB na execução, Mercado Pago, deploy em Kubernetes e a Lambda de CPF passando a chamar a OS por HTTP em vez de ler a tabela de cliente. Essas etapas não alteram o dono de cada dado definido aqui.
+Mensageria (SQS), deploy em Kubernetes e a Lambda de CPF passando a chamar a OS por HTTP em vez de ler a tabela de cliente. Essas etapas não alteram o dono de cada dado definido aqui.

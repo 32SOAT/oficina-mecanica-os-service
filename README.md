@@ -2,7 +2,7 @@
 
 Dono da ficha da ordem de serviço. Aqui ficam o status canônico, o histórico, o cliente, o veículo, o usuário, a autenticação de administrador, o catálogo de mão de obra, o estoque e o e-mail. Esta API também conduz o fluxo: grava o status e chama o billing e a execução.
 
-A decisão completa está em [docs/adr/001-divisao-dos-servicos-e-banco-por-aplicacao.md](docs/adr/001-divisao-dos-servicos-e-banco-por-aplicacao.md).
+A decisão completa está em [docs/adr/001-divisao-dos-servicos-e-banco-por-aplicacao.md](docs/adr/001-divisao-dos-servicos-e-banco-por-aplicacao.md). O desenho do fluxo, com status e chamadas entre os serviços, está em [docs/fluxo-da-ordem.md](docs/fluxo-da-ordem.md).
 
 ## O que fica aqui
 
@@ -16,7 +16,7 @@ A decisão completa está em [docs/adr/001-divisao-dos-servicos-e-banco-por-apli
 
 - A execução não guarda o catálogo. Ela só registra se o diagnóstico ou o reparo está aberto ou concluído.
 - O billing não recalcula preço. Ele recebe o `valorTotal` já fechado e controla orçamento e pagamento.
-- Mercado Pago ainda não entra. O pagamento local é confirmado no billing antes de `ENTREGUE`.
+- O Mercado Pago fica no billing. A OS só entrega depois de consultar o pagamento e encontrá-lo `APROVADO`.
 
 ## Banco
 
@@ -44,7 +44,7 @@ As rotas da OS continuam as mesmas do monólito. Em cada transição a OS grava 
 3. `POST /api/v1/ordens/:id/aprovar-orcamento` ou `reprovar-orcamento` atualiza o billing.
 4. `POST /api/v1/ordens/:id/iniciar-execucao` abre o reparo.
 5. `POST /api/v1/ordens/:id/finalizar` conclui o reparo e abre um pagamento pendente.
-6. `POST http://localhost:3002/api/v1/pagamentos/:osId/confirmar` com o header `x-saga-token: oficina-local`.
+6. Abra `http://localhost:3002/api/v1/pagamentos/:osId/checkout` e pague com o cartão de teste. A order aprovada grava o pagamento como `APROVADO`.
 7. `POST /api/v1/ordens/:id/entregar` só segue se o pagamento estiver aprovado.
 
 O login de administrador continua em `POST /api/v1/auth/login` (`admin@oficina.com` / `admin123` depois das migrations) e serve para abrir, diagnosticar, executar, finalizar e entregar. Aprovar e reprovar o orçamento continuam exigindo JWT com `role: cliente`, `sub` e `cpf`, assinado com o `JWT_SECRET` do `.env`. Sem a Lambda, esse token pode ser gerado na máquina local.
