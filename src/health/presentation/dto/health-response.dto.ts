@@ -5,9 +5,6 @@ export class HealthResponseDto {
   @ApiProperty({ example: 'ok' })
   status: 'ok';
 
-  @ApiProperty({ example: 'os-service' })
-  service: string;
-
   @ApiProperty({
     format: 'date-time',
     example: '2023-10-01T12:00:00.000Z',

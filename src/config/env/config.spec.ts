@@ -1,0 +1,164 @@
+import { appConfig, envValidationSchema } from './app.config';
+import { getDatabaseOptions, typeOrmConfig } from './database.config';
+import { jwtConfig } from './jwt.config';
+import { resendConfig } from './resend.config';
+
+describe('config env', () => {
+  it('builds app config with defaults', () => {
+    delete process.env.NODE_ENV;
+    delete process.env.APP_PORT;
+
+    const value = (
+      appConfig as unknown as () => {
+        environment: string;
+        port: number;
+      }
+    )();
+
+    expect(value.environment).toBe('development');
+    expect(value.port).toBe(3001);
+  });
+
+  it('builds app config from environment', () => {
+    process.env.NODE_ENV = 'development';
+    process.env.APP_PORT = '4000';
+
+    const value = (
+      appConfig as unknown as () => {
+        environment: string;
+        port: number;
+      }
+    )();
+
+    expect(value.environment).toBe('development');
+    expect(value.port).toBe(4000);
+  });
+
+  it('builds jwt config with default expiresIn', () => {
+    process.env.JWT_SECRET = 'test-secret';
+    delete process.env.JWT_EXPIRES_IN;
+    const value = (
+      jwtConfig as unknown as () => { secret: string; expiresIn: string }
+    )();
+    expect(value.secret).toBe('test-secret');
+    expect(value.expiresIn).toBe('1h');
+  });
+
+  it('builds jwt config with JWT_EXPIRES_IN from env', () => {
+    process.env.JWT_SECRET = 'test-secret';
+    process.env.JWT_EXPIRES_IN = '7d';
+    const value = (
+      jwtConfig as unknown as () => { secret: string; expiresIn: string }
+    )();
+    expect(value.expiresIn).toBe('7d');
+  });
+
+  it('builds database options with defaults', () => {
+    delete process.env.POSTGRES_HOST;
+    delete process.env.POSTGRES_PORT;
+    delete process.env.POSTGRES_USER;
+    delete process.env.POSTGRES_PASSWORD;
+    delete process.env.POSTGRES_DB;
+    delete process.env.POSTGRES_SSL;
+    delete process.env.POSTGRES_SSL_REJECT_UNAUTHORIZED;
+    process.env.POSTGRES_SYNC = '0';
+
+    const options = getDatabaseOptions();
+    expect(options).toMatchObject({
+      host: 'localhost',
+      port: 5432,
+      username: 'postgres',
+      password: 'postgres',
+      database: 'oficina_mecanica',
+      synchronize: false,
+    });
+  });
+
+  it('builds database options with ssl enabled', () => {
+    process.env.POSTGRES_HOST = 'db';
+    process.env.POSTGRES_PORT = '5432';
+    process.env.POSTGRES_USER = 'postgres';
+    process.env.POSTGRES_PASSWORD = 'postgres';
+    process.env.POSTGRES_DB = 'oficina';
+    process.env.POSTGRES_SYNC = '0';
+    process.env.POSTGRES_SSL = '1';
+    process.env.POSTGRES_SSL_REJECT_UNAUTHORIZED = '0';
+
+    const options = getDatabaseOptions();
+    expect(options).toMatchObject({
+      ssl: {
+        rejectUnauthorized: false,
+      },
+    });
+  });
+
+  it('builds database options and registerAs wrapper', () => {
+    process.env.POSTGRES_HOST = 'db';
+    process.env.POSTGRES_PORT = '5432';
+    process.env.POSTGRES_USER = 'postgres';
+    process.env.POSTGRES_PASSWORD = 'postgres';
+    process.env.POSTGRES_DB = 'oficina';
+    process.env.POSTGRES_SYNC = '1';
+    delete process.env.POSTGRES_SSL;
+    delete process.env.POSTGRES_SSL_REJECT_UNAUTHORIZED;
+
+    const options = getDatabaseOptions();
+    expect(options).toMatchObject({
+      host: 'db',
+      port: 5432,
+      username: 'postgres',
+      password: 'postgres',
+      database: 'oficina',
+      synchronize: true,
+    });
+
+    const fromRegisterAs = (
+      typeOrmConfig as unknown as typeof getDatabaseOptions
+    )();
+    expect(fromRegisterAs).toEqual(options);
+  });
+
+  it('builds resend config from environment', () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.RESEND_FROM = 'onboarding@resend.dev';
+    process.env.NOTIFICACAO_EMAIL_MECANICOS = 'mecanicos@example.com';
+    process.env.NOTIFICACAO_EMAIL_ADMIN = 'admin@example.com';
+
+    const value = (
+      resendConfig as unknown as () => {
+        apiKey: string;
+        from: string;
+        emailAdmin: string;
+      }
+    )();
+
+    expect(value.apiKey).toBe('re_test_key');
+    expect(value.from).toBe('onboarding@resend.dev');
+    expect(value.emailAdmin).toBe('admin@example.com');
+  });
+
+  it('validates env with joi schema', () => {
+    const validated = envValidationSchema.validate({
+      NODE_ENV: 'development',
+      POSTGRES_USER: 'postgres',
+      POSTGRES_PASSWORD: 'postgres',
+      POSTGRES_DB: 'oficina',
+      POSTGRES_SYNC: 1,
+      POSTGRES_SSL: 1,
+      POSTGRES_SSL_REJECT_UNAUTHORIZED: 0,
+      JWT_SECRET: 'test-jwt-secret-for-validation',
+      RESEND_API_KEY: 're_test_key',
+      NOTIFICACAO_EMAIL_MECANICOS: 'mecanicos@example.com',
+      NOTIFICACAO_EMAIL_ADMIN: 'admin@example.com',
+    });
+    const error = validated.error;
+    const value = validated.value as {
+      APP_PORT: number;
+      POSTGRES_HOST: string;
+    };
+
+    expect(error).toBeUndefined();
+    expect(value.APP_PORT).toBe(3001);
+    expect(value.POSTGRES_HOST).toBe('localhost');
+  });
+});
