@@ -1,4 +1,7 @@
-import { ChangePasswordInput, ValidateCredentialsInput } from '../../application/dto/auth.dto';
+import {
+  ChangePasswordInput,
+  ValidateCredentialsInput,
+} from '../../application/dto/auth.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
 import { LoginDto } from '../dto/login.dto';
 

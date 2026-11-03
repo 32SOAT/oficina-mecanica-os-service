@@ -1,5 +1,4 @@
 import {
-  CriarOrdemServicoInput,
   EditarItensOsInput,
   OrdemServicoReadModel,
 } from '../dto/ordem-servico.dto';
@@ -32,9 +31,10 @@ export interface OsWorkflowHandle {
   observacao: string | null;
   valorTotal: number;
   readonly itensPeca: OsPecaItemState[];
-  avancarStatus(
-    para: StatusOrdemServico,
-  ): { anterior: StatusOrdemServico; novo: StatusOrdemServico };
+  avancarStatus(para: StatusOrdemServico): {
+    anterior: StatusOrdemServico;
+    novo: StatusOrdemServico;
+  };
   calcularValorTotal(): number;
   todasPecasDisponiveis(): boolean;
 }
@@ -75,7 +75,9 @@ export interface OrdemServicoTransactionalOperations {
   syncPecaDisponibilidadeAposAprovacao(handle: OsWorkflowHandle): Promise<void>;
   darBaixaPecasEmExecucao(handle: OsWorkflowHandle): Promise<void>;
   estornarReservasAoReprovar(handle: OsWorkflowHandle): Promise<void>;
-  loadOsAguardandoPecasForUpdate(osId: string): Promise<OsWorkflowHandle | null>;
+  loadOsAguardandoPecasForUpdate(
+    osId: string,
+  ): Promise<OsWorkflowHandle | null>;
   syncPecasPendentesAposReposicao(handle: OsWorkflowHandle): Promise<void>;
 }
 

@@ -37,7 +37,9 @@ export class VeiculoTypeormRepository implements VeiculoRepository {
       take,
       relations: ['cliente'],
     });
-    await Promise.all(entities.map((entity) => this.enrichClienteForRead(entity)));
+    await Promise.all(
+      entities.map((entity) => this.enrichClienteForRead(entity)),
+    );
     return [entities.map((entity) => entity.toDomain()), count];
   }
 
@@ -83,7 +85,9 @@ export class VeiculoTypeormRepository implements VeiculoRepository {
     return loaded.toDomain();
   }
 
-  private async enrichClienteForRead(entity: VeiculoTypeormEntity): Promise<void> {
+  private async enrichClienteForRead(
+    entity: VeiculoTypeormEntity,
+  ): Promise<void> {
     if (entity.cliente || !entity.cliente_id) {
       return;
     }

@@ -237,7 +237,9 @@ export class OrdemServicoResponseDto {
   @ApiProperty({ type: () => [ItemPecaOsResponseDto], required: false })
   itensPeca?: ItemPecaOsResponseDto[];
 
-  static fromReadModel(readModel: OrdemServicoReadModel): OrdemServicoResponseDto {
+  static fromReadModel(
+    readModel: OrdemServicoReadModel,
+  ): OrdemServicoResponseDto {
     return Object.assign(new OrdemServicoResponseDto(), {
       id: readModel.id,
       veiculo_id: readModel.veiculo_id,

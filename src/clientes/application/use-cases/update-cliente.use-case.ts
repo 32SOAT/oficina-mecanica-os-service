@@ -22,10 +22,7 @@ export class UpdateClienteUseCase {
     private readonly clienteRepository: ClienteRepository,
   ) {}
 
-  async execute(
-    id: string,
-    input: UpdateClienteInput,
-  ): Promise<Cliente> {
+  async execute(id: string, input: UpdateClienteInput): Promise<Cliente> {
     const existingCliente = await this.clienteRepository.findById(id);
     if (!existingCliente) {
       throw new NotFoundError('Cliente não encontrado.');

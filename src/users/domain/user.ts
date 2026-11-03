@@ -18,7 +18,11 @@ export class User {
     this.password = props.password;
   }
 
-  static create(props: { username: string; email: string; password?: string }): User {
+  static create(props: {
+    username: string;
+    email: string;
+    password?: string;
+  }): User {
     return new User(props);
   }
 

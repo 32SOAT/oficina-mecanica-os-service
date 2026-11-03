@@ -1,7 +1,8 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { NotFoundError } from '../../../common/application/errors/application.errors';
 import { UpdateVeiculoInput } from '../dto/update-veiculo.input';
-import { Veiculo } from '../../domain/veiculo';import {
+import { Veiculo } from '../../domain/veiculo';
+import {
   CLIENTE_LOOKUP_PORT,
   ClienteLookupPort,
 } from '../../../clientes/application/ports/cliente-lookup.port';
@@ -19,10 +20,7 @@ export class UpdateVeiculoUseCase {
     private readonly clienteLookup: ClienteLookupPort,
   ) {}
 
-  async execute(
-    id: string,
-    input: UpdateVeiculoInput,
-  ): Promise<Veiculo> {
+  async execute(id: string, input: UpdateVeiculoInput): Promise<Veiculo> {
     const existing = await this.veiculoRepository.findById(id);
     if (!existing) {
       throw new NotFoundError('Veiculo não encontrado.');

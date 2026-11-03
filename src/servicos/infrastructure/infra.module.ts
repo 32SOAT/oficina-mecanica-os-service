@@ -24,6 +24,10 @@ import { ServicoTypeormRepository } from './typeorm/repository/servico.repositor
       useExisting: ServicoTransactionalAdapter,
     },
   ],
-  exports: [SERVICO_REPOSITORY, SERVICO_LOOKUP_PORT, SERVICO_TRANSACTIONAL_PORT],
+  exports: [
+    SERVICO_REPOSITORY,
+    SERVICO_LOOKUP_PORT,
+    SERVICO_TRANSACTIONAL_PORT,
+  ],
 })
 export class ServicoInfraModule {}

@@ -142,7 +142,9 @@ export class OrdemServicoTypeormTransaction
     return this.em;
   }
 
-  private toReadModel(entity: OrdemServicoTypeormEntity): OrdemServicoReadModel {
+  private toReadModel(
+    entity: OrdemServicoTypeormEntity,
+  ): OrdemServicoReadModel {
     return OrdemServicoReadModelMapper.toReadModel(entity);
   }
 

@@ -5,10 +5,7 @@ import {
   USER_CREDENTIAL_PORT,
   UserCredentialPort,
 } from '../../../users/application/ports/user-credential.port';
-import {
-  PASSWORD_HASHER,
-  PasswordHasher,
-} from '../ports/password-hasher.port';
+import { PASSWORD_HASHER, PasswordHasher } from '../ports/password-hasher.port';
 
 @Injectable()
 export class ChangePasswordUseCase {

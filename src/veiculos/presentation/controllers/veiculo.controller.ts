@@ -72,7 +72,9 @@ export class VeiculoController {
       VeiculoPresentationMapper.toFindAllInput(paginationDto),
     );
     return {
-      data: result.data.map((veiculo) => VeiculoResponseDto.fromDomain(veiculo)),
+      data: result.data.map((veiculo) =>
+        VeiculoResponseDto.fromDomain(veiculo),
+      ),
       meta: result.meta,
     };
   }

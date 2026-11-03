@@ -10,7 +10,10 @@ import { VeiculoTypeormEntity } from './typeorm/entity/veiculo.typeorm.entity';
 import { VeiculoTypeormRepository } from './typeorm/repository/veiculo.repository';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([VeiculoTypeormEntity]), ClienteInfraModule],
+  imports: [
+    TypeOrmModule.forFeature([VeiculoTypeormEntity]),
+    ClienteInfraModule,
+  ],
   providers: [
     VeiculoTypeormRepository,
     VeiculoLookupAdapter,

@@ -8,9 +8,7 @@ import {
 } from 'class-validator';
 
 @ValidatorConstraint({ name: 'atLeastOneProperty', async: false })
-export class AtLeastOnePropertyConstraint
-  implements ValidatorConstraintInterface
-{
+export class AtLeastOnePropertyConstraint implements ValidatorConstraintInterface {
   validate(_: unknown, args: ValidationArguments): boolean {
     const object = args.object as Record<string, unknown>;
 
@@ -25,7 +23,7 @@ export class AtLeastOnePropertyConstraint
 }
 
 export function AtLeastOneProperty(validationOptions?: ValidationOptions) {
-  return function (target: Function) {
+  return function (target: { prototype: object }) {
     Validate(AtLeastOnePropertyConstraint, validationOptions)(
       target.prototype,
       '_atLeastOneProperty',

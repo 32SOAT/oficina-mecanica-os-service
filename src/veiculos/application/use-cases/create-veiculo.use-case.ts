@@ -4,7 +4,8 @@ import {
   ConflictError,
 } from '../../../common/application/errors/application.errors';
 import { CreateVeiculoInput } from '../dto/create-veiculo.input';
-import { Veiculo } from '../../domain/veiculo';import { InvalidPlacaError, Placa } from '../../domain/value-objects/placa';
+import { Veiculo } from '../../domain/veiculo';
+import { InvalidPlacaError, Placa } from '../../domain/value-objects/placa';
 import {
   CLIENTE_LOOKUP_PORT,
   ClienteLookupPort,

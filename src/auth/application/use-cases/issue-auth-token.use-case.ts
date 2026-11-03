@@ -1,5 +1,8 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { AuthenticatedUserReadModel, LoginReadModel } from '../read-models/auth-read-model';
+import {
+  AuthenticatedUserReadModel,
+  LoginReadModel,
+} from '../read-models/auth-read-model';
 import { TOKEN_SERVICE, TokenService } from '../ports/token.service.port';
 
 @Injectable()

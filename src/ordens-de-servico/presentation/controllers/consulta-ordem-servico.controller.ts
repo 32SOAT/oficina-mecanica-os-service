@@ -37,7 +37,10 @@ export class ConsultaOrdemServicoController {
     description: 'Status atual, valor, veículo (placa/modelo) e linha do tempo',
     type: StatusPublicoResponse,
   })
-  @ApiResponse({ status: 401, description: 'Token ausente, inválido ou expirado.' })
+  @ApiResponse({
+    status: 401,
+    description: 'Token ausente, inválido ou expirado.',
+  })
   @ApiResponse({
     status: 403,
     description: 'Token autenticado, mas o perfil não é cliente.',

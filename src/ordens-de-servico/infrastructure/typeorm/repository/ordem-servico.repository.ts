@@ -96,7 +96,8 @@ export class OrdemServicoTypeormRepository implements OrdemServicoQueryPort {
       qb.andWhere('os.createdAt <= :dataFim', { dataFim: filtros.dataFim });
     }
 
-    const prioridadeListagem = buildPrioridadeStatusListagemCaseSql('os.status');
+    const prioridadeListagem =
+      buildPrioridadeStatusListagemCaseSql('os.status');
     qb.addSelect(prioridadeListagem, 'os_prioridade_listagem')
       .orderBy('os_prioridade_listagem', 'ASC')
       .addOrderBy('os.createdAt', 'ASC')

@@ -29,9 +29,7 @@ export class Servico {
     this.deletedAt = props.deletedAt ?? null;
   }
 
-  public static create(
-    props: ServicoProps & { id?: number },
-  ): Servico {
+  public static create(props: ServicoProps & { id?: number }): Servico {
     return new Servico(props.id, props);
   }
 

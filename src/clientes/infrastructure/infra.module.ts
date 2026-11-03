@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import {
-  CLIENTE_REPOSITORY,
-} from '../application/ports/cliente.repository';
+import { CLIENTE_REPOSITORY } from '../application/ports/cliente.repository';
 import { CLIENTE_LOOKUP_PORT } from '../application/ports/cliente-lookup.port';
 import { CLIENTE_TRANSACTIONAL_PORT } from '../application/ports/cliente-transactional.port';
 import { ClienteLookupAdapter } from './lookup/cliente-lookup.adapter';
@@ -29,6 +27,10 @@ import { ClienteTypeormRepository } from './typeorm/repository/cliente.repositor
       useExisting: ClienteTransactionalAdapter,
     },
   ],
-  exports: [CLIENTE_REPOSITORY, CLIENTE_LOOKUP_PORT, CLIENTE_TRANSACTIONAL_PORT],
+  exports: [
+    CLIENTE_REPOSITORY,
+    CLIENTE_LOOKUP_PORT,
+    CLIENTE_TRANSACTIONAL_PORT,
+  ],
 })
 export class ClienteInfraModule {}

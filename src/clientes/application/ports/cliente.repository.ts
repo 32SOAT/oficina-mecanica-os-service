@@ -7,6 +7,9 @@ export abstract class ClienteRepository {
   abstract findAll(skip: number, take: number): Promise<[Cliente[], number]>;
   abstract findByDocumento(documento: string): Promise<Cliente | null>;
   abstract findById(id: string): Promise<Cliente | null>;
-  abstract existsByDocumento(documento: string, excludeId?: string): Promise<boolean>;
+  abstract existsByDocumento(
+    documento: string,
+    excludeId?: string,
+  ): Promise<boolean>;
   abstract softRemove(cliente: Cliente): Promise<Cliente>;
 }

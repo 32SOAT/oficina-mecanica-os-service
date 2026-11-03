@@ -4,7 +4,8 @@ import type { EstoqueSnapshot } from '../../../estoque/application/ports/estoque
 import { EstoqueTypeormEntity } from '../../../estoque/infrastructure/typeorm/entity/estoque.typeorm.entity';
 import type { ServicoSnapshot } from '../../../servicos/application/ports/servico-lookup.port';
 import { ServicoTypeormEntity } from '../../../servicos/infrastructure/typeorm/entity/servico.typeorm.entity';
-import type { VeiculoSnapshot } from '../../../veiculos/application/ports/veiculo-lookup.port';import { VeiculoTypeormEntity } from '../../../veiculos/infrastructure/typeorm/entity/veiculo.typeorm.entity';
+import type { VeiculoSnapshot } from '../../../veiculos/application/ports/veiculo-lookup.port';
+import { VeiculoTypeormEntity } from '../../../veiculos/infrastructure/typeorm/entity/veiculo.typeorm.entity';
 import type {
   ClienteOsReadModel,
   EstoqueSnapshotReadModel,
@@ -32,12 +33,8 @@ export class OrdemServicoReadModelMapper {
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
       deletedAt: entity.deletedAt,
-      cliente: entity.cliente
-        ? this.toCliente(entity.cliente)
-        : undefined,
-      veiculo: entity.veiculo
-        ? this.toVeiculo(entity.veiculo)
-        : undefined,
+      cliente: entity.cliente ? this.toCliente(entity.cliente) : undefined,
+      veiculo: entity.veiculo ? this.toVeiculo(entity.veiculo) : undefined,
       itensServico: entity.itensServico?.map((item) =>
         this.toItemServico(item),
       ),

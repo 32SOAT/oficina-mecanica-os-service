@@ -1,10 +1,4 @@
-import {
-  Body,
-  Controller,
-  Patch,
-  Post,
-  Req,
-} from '@nestjs/common';
+import { Body, Controller, Patch, Post, Req } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -50,7 +44,9 @@ export class AuthController {
       AuthPresentationMapper.toValidateCredentialsInput(loginDto),
     );
 
-    return LoginResponseDto.fromReadModel(this.issueAuthTokenUseCase.execute(user));
+    return LoginResponseDto.fromReadModel(
+      this.issueAuthTokenUseCase.execute(user),
+    );
   }
 
   @Roles('admin')
@@ -70,7 +66,8 @@ export class AuthController {
   })
   @ApiResponse({
     status: 403,
-    description: 'Token autenticado, mas o perfil não é admin (ex.: JWT de cliente).',
+    description:
+      'Token autenticado, mas o perfil não é admin (ex.: JWT de cliente).',
   })
   async changePassword(
     @Req() req: AuthenticatedRequest,

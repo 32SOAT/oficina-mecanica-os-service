@@ -88,7 +88,7 @@ export class EstoqueController {
       EstoquePresentationMapper.toFindAllInput(filtros),
     );
     return {
-      data: result.data.map(EstoqueResponseDto.fromDomain),
+      data: result.data.map((item) => EstoqueResponseDto.fromDomain(item)),
       meta: result.meta,
     };
   }

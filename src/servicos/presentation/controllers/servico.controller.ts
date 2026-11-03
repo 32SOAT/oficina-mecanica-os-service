@@ -72,7 +72,7 @@ export class ServicoController {
       ServicoPresentationMapper.toFindAllInput(paginationDto),
     );
     return {
-      data: result.data.map(ServicoResponseDto.fromDomain),
+      data: result.data.map((item) => ServicoResponseDto.fromDomain(item)),
       meta: result.meta,
     };
   }

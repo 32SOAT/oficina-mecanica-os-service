@@ -63,7 +63,7 @@ export class UserController {
       UserPresentationMapper.toFindAllInput(paginationDto),
     );
     return {
-      data: result.data.map(UserResponseDto.fromDomain),
+      data: result.data.map((item) => UserResponseDto.fromDomain(item)),
       meta: result.meta,
     };
   }

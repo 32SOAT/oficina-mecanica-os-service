@@ -247,11 +247,7 @@ export class NotificarListener {
       clienteNome: cliente.nome,
     });
 
-    await this.enviarEmailValido(
-      cliente.email,
-      message,
-      'serviço finalizado',
-    );
+    await this.enviarEmailValido(cliente.email, message, 'serviço finalizado');
   }
 
   private async notificarClienteServicoReprovado(osId: string): Promise<void> {
@@ -274,10 +270,6 @@ export class NotificarListener {
       clienteNome: cliente.nome,
     });
 
-    await this.enviarEmailValido(
-      cliente.email,
-      message,
-      'orçamento reprovado',
-    );
+    await this.enviarEmailValido(cliente.email, message, 'orçamento reprovado');
   }
 }
