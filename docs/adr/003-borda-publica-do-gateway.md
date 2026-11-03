@@ -28,9 +28,11 @@ Checkout e cobrança não têm authorizer. O dono do veículo e o administrador 
 
 Orçamento, execução, abertura do pagamento, confirmação, recusa e a consulta de cliente da Lambda ficam fora do gateway. A OS e a Lambda chamam esses endereços direto, com o token da saga.
 
-Não criptografamos de novo o que já atravessa essa borda. O cliente fala com o API Gateway por HTTPS. O JWT vai assinado nesse canal. O número do cartão não é dado nosso. Criptografar o JSON por cima do TLS, ou esconder o `osId` do checkout, não reduz o que está exposto e quebra o cliente e a página.
+## HTTPS
 
-O trecho que ainda não tem TLS é o salto do API Gateway até o NLB, hoje em `http://`. Quando o billing e a OS tiverem listener HTTPS no balanceador, a integração passa a usar `https://`. Isso é configuração do canal, não criptografia de cada campo.
+O cliente já fala com o API Gateway por HTTPS. O JWT vai assinado nesse canal. O número do cartão não é dado nosso: o Brick troca o cartão por um token no navegador. Não cifraremos o JSON por cima do TLS, nem esconderemos o `osId` do checkout. Isso não reduz o que está exposto e quebra o cliente e a página.
+
+O trecho sem TLS é o salto do API Gateway até o NLB. A integração está em `http://hostname`. Quando a OS e o billing tiverem listener HTTPS no balanceador, essa URL passa a `https://hostname`, sem barra e sem criptografia de cada campo. Até lá, o corpo chega cifrado só até o gateway.
 
 ## Consequências
 
