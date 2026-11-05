@@ -4,13 +4,11 @@ import * as Joi from 'joi';
 export interface AppConfig {
   environment: string;
   port: number;
-  serviceName: string;
 }
 
 export const appConfig = registerAs('app', (): AppConfig => ({
   environment: process.env.NODE_ENV ?? 'development',
   port: Number.parseInt(process.env.APP_PORT ?? '3001', 10),
-  serviceName: process.env.SERVICE_NAME ?? 'os-service',
 }));
 
 export const envValidationSchema = Joi.object({
@@ -18,5 +16,22 @@ export const envValidationSchema = Joi.object({
     .valid('development', 'test', 'production')
     .default('development'),
   APP_PORT: Joi.number().default(3001),
-  SERVICE_NAME: Joi.string().default('os-service'),
+  BILLING_BASE_URL: Joi.string().default('http://localhost:3002'),
+  EXECUCAO_BASE_URL: Joi.string().default('http://localhost:3003'),
+  SAGA_TOKEN: Joi.string().default('oficina-local'),
+  POSTGRES_HOST: Joi.string().default('localhost'),
+  POSTGRES_PORT: Joi.number().default(5432),
+  POSTGRES_USER: Joi.string().required(),
+  POSTGRES_PASSWORD: Joi.string().required(),
+  POSTGRES_DB: Joi.string().required(),
+  POSTGRES_SYNC: Joi.number().valid(0, 1).required(),
+  POSTGRES_SSL: Joi.number().valid(0, 1).default(0),
+  POSTGRES_SSL_REJECT_UNAUTHORIZED: Joi.number().valid(0, 1).default(0),
+  JWT_SECRET: Joi.string().required(),
+  JWT_EXPIRES_IN: Joi.string().default('1h'),
+  RESEND_API_KEY: Joi.string().required(),
+  RESEND_FROM: Joi.string().email().default('onboarding@resend.dev'),
+  RESEND_DEV_REDIRECT_TO: Joi.string().email().optional(),
+  NOTIFICACAO_EMAIL_MECANICOS: Joi.string().email().required(),
+  NOTIFICACAO_EMAIL_ADMIN: Joi.string().email().required(),
 });

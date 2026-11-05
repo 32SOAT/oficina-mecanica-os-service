@@ -22,14 +22,13 @@ export class TransformResponseInterceptor implements NestInterceptor {
     );
   }
 
-  intercept(
-    _context: ExecutionContext,
-    next: CallHandler,
-  ): Observable<unknown> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     return next.handle().pipe(
       map((response: unknown) => {
         if (!response) {
-          return { data: [] };
+          return {
+            data: [],
+          };
         }
         if (this.hasDataAndMeta(response)) {
           return {
@@ -37,7 +36,9 @@ export class TransformResponseInterceptor implements NestInterceptor {
             meta: response.meta,
           };
         }
-        return { data: response };
+        return {
+          data: response,
+        };
       }),
     );
   }

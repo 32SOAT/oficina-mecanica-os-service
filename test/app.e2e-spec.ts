@@ -1,40 +1,48 @@
-import { INestApplication } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
-import request from 'supertest';
-import { App } from 'supertest/types';
-import { AppModule } from '../src/app.module';
-import { configureApp } from '../src/common/bootstrap/configure-app';
+import { BadRequestException } from '@nestjs/common';
+import { SagaClient } from '../src/saga/saga.client';
 
-describe('Health (e2e)', () => {
-  let app: INestApplication<App>;
+describe('SagaClient', () => {
+  const client = new SagaClient();
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    configureApp(app);
-    await app.init();
+  beforeEach(() => {
+    jest.restoreAllMocks();
   });
 
-  afterEach(async () => {
-    await app.close();
+  it('rejects delivery when payment is still pending', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({
+            data: { osId: '1', valorTotal: 10, status: 'PENDENTE' },
+          }),
+        ),
+    } as Response);
+
+    await expect(client.exigirPagamentoAprovado('1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
-  it('GET /api/v1/health returns the service name', () => {
-    return request(app.getHttpServer())
-      .get('/api/v1/health')
-      .expect(200)
-      .expect((response) => {
-        const body = response.body as {
-          data: { status: string; service: string };
-        };
-        expect(body.data.status).toBe('ok');
-        expect(body.data.service).toBe('os-service');
-        expect(response.headers['x-correlation-id']).toEqual(
-          expect.any(String),
-        );
-      });
+  it('allows delivery when payment is approved', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({
+            data: { osId: '1', valorTotal: 10, status: 'APROVADO' },
+          }),
+        ),
+    } as Response);
+
+    await expect(client.exigirPagamentoAprovado('1')).resolves.toBeUndefined();
+  });
+
+  it('reports when the other service is down', async () => {
+    jest.spyOn(global, 'fetch').mockRejectedValue(new Error('offline'));
+
+    await expect(client.abrirDiagnostico('1')).rejects.toThrow(
+      'Serviço indisponível',
+    );
   });
 });

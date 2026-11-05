@@ -1,33 +1,52 @@
 # OS Service
 
-Esqueleto NestJS do microsserviço `os-service` da oficina mecânica.
+Dono da ficha da ordem de serviço. Aqui ficam o status canônico, o histórico, o cliente, o veículo, o usuário, a autenticação de administrador, o catálogo de mão de obra, o estoque e o e-mail. Esta API também conduz o fluxo: grava o status e chama o billing e a execução.
 
-Dono da ficha da ordem de serviço: abertura, status canônico, histórico, cliente, veículo, catálogo e estoque.
+A decisão completa está em [docs/adr/001-divisao-dos-servicos-e-banco-por-aplicacao.md](docs/adr/001-divisao-dos-servicos-e-banco-por-aplicacao.md). O desenho do fluxo, com status e chamadas entre os serviços, está em [docs/fluxo-da-ordem.md](docs/fluxo-da-ordem.md).
 
-PostgreSQL próprio, ainda não ligado. O banco entra neste repositório quando as responsabilidades saírem do monólito.
+## O que fica aqui
 
-A regra de negócio ainda está no monólito `oficina-mecanica-api` e será transferida para cá.
+- Cadastro de cliente, veículo, usuário e login de administrador.
+- Catálogo de mão de obra (`servico`: nome, descrição e preço). Esse preço entra no `valorTotal` da ordem, na mesma transação das peças.
+- Estoque: reserva na abertura, espera em `AGUARDANDO_PECAS_INSUMOS` e baixa ao iniciar a execução.
+- Status, histórico e notificações.
+- Orquestração das chamadas ao billing (`localhost:3002`) e à execução (`localhost:3003`).
 
-## Stack
+## O que não fica aqui
 
-NestJS 11 · TypeScript · Pino · Swagger · Jest · ESLint · Docker
+- A execução não guarda o catálogo. Ela só registra se o diagnóstico ou o reparo está aberto ou concluído.
+- O billing não recalcula preço. Ele recebe o `valorTotal` já fechado e controla orçamento e pagamento.
+- O Mercado Pago fica no billing. A OS só entrega depois de consultar o pagamento e encontrá-lo `APROVADO`.
+
+## Banco
+
+Postgres `oficina_os` no próprio repositório, porta **5435** no host. A 5432 continua com o banco do monólito. O schema nasce com `npm run migration:run`. Este serviço não conecta no banco do billing nem no da execução.
 
 ## Execução local
 
+Suba os três bancos e os três serviços. Billing e execução precisam estar no ar antes de percorrer uma ordem.
+
 ```bash
-npm install
+docker compose up -d
 copy .env.example .env
+npm install
+npm run migration:run
 npm run start:dev
 ```
 
+- API: http://localhost:3001/api
 - Health: http://localhost:3001/api/v1/health
-- Swagger: http://localhost:3001/api
 
-## Testes
+As rotas da OS continuam as mesmas do monólito. Em cada transição a OS grava o status e avisa o serviço dono da etapa:
 
-```bash
-npm test
-npm run test:cov
-npm run test:e2e
-npm run lint:check
-```
+1. `POST /api/v1/ordens/:id/iniciar-diagnostico` abre o diagnóstico na execução.
+2. `POST /api/v1/ordens/:id/gerar-orcamento` conclui o diagnóstico e cria o orçamento.
+3. `POST /api/v1/ordens/:id/aprovar-orcamento` ou `reprovar-orcamento` atualiza o billing.
+4. `POST /api/v1/ordens/:id/iniciar-execucao` abre o reparo.
+5. `POST /api/v1/ordens/:id/finalizar` conclui o reparo e abre um pagamento pendente.
+6. Abra `http://localhost:3002/api/v1/pagamentos/:osId/checkout` e pague com o cartão de teste. A order aprovada grava o pagamento como `APROVADO`.
+7. `POST /api/v1/ordens/:id/entregar` só segue se o pagamento estiver aprovado.
+
+O login de administrador continua em `POST /api/v1/auth/login` (`admin@oficina.com` / `admin123` depois das migrations) e serve para abrir, diagnosticar, executar, finalizar e entregar. Aprovar e reprovar o orçamento continuam exigindo JWT com `role: cliente`, `sub` e `cpf`, assinado com o `JWT_SECRET` do `.env`. Sem a Lambda, esse token pode ser gerado na máquina local.
+
+`POST /api/v1/seeding` popula cliente, veículo, serviço, estoque e usuários. A senha dos usuários criados pelo seed é `SeedPassword123!`.
