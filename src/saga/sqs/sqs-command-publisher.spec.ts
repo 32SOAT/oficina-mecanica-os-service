@@ -17,7 +17,11 @@ describe('SqsCommandPublisher', () => {
   };
 
   it('sends FIFO commands grouped by OS and deduplicated by command ID', async () => {
-    const sqs = { send: jest.fn().mockResolvedValue({ MessageId: 'sqs-1' }) };
+    const sqs = {
+      send: jest
+        .fn<Promise<{ MessageId: string }>, [unknown]>()
+        .mockResolvedValue({ MessageId: 'sqs-1' }),
+    };
     const config = {
       getOrThrow: jest.fn().mockReturnValue({
         billingCommandQueueUrl: 'http://sqs.test/billing.fifo',
