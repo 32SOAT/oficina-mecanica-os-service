@@ -1,6 +1,7 @@
 import { OrdemServicoController } from './ordem-servico.controller';
 import { StatusOrdemServico as S } from '../../domain/status-ordem-servico.enum';
 import { type AuthenticatedRequest } from '../../../auth/presentation/interfaces/authenticated-request.interface';
+import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
 
 const mockReq = {
   user: { sub: 'usuario-1', role: 'admin', email: 'a@b.c', username: 'admin' },
@@ -20,22 +21,17 @@ describe('OrdemServicoController', () => {
   const findOrdemServicoHistoricoUseCase = mockUseCase();
   const transicionarOrdemServicoUseCase = mockUseCase();
   const substituirItensOrdemServicoUseCase = mockUseCase();
-  const gerarOrcamentoOrdemServicoUseCase = mockUseCase();
-  const aprovarOrcamentoOrdemServicoUseCase = mockUseCase();
-  const reprovarOrcamentoOrdemServicoUseCase = mockUseCase();
-  const iniciarExecucaoOrdemServicoUseCase = mockUseCase();
   const avancarStatusOrdemServicoUseCase = mockUseCase();
   const saga = {
     abrirDiagnostico: jest.fn(),
-    concluirDiagnostico: jest.fn(),
     gerarOrcamento: jest.fn(),
     aprovarOrcamento: jest.fn(),
     reprovarOrcamento: jest.fn(),
     iniciarReparo: jest.fn(),
-    concluirReparo: jest.fn(),
-    abrirPagamento: jest.fn(),
+    finalizar: jest.fn(),
     exigirPagamentoAprovado: jest.fn(),
   };
+  const sagaQuery = { get: jest.fn() };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -46,12 +42,9 @@ describe('OrdemServicoController', () => {
       findOrdemServicoHistoricoUseCase as never,
       transicionarOrdemServicoUseCase as never,
       substituirItensOrdemServicoUseCase as never,
-      gerarOrcamentoOrdemServicoUseCase as never,
-      aprovarOrcamentoOrdemServicoUseCase as never,
-      reprovarOrcamentoOrdemServicoUseCase as never,
-      iniciarExecucaoOrdemServicoUseCase as never,
       avancarStatusOrdemServicoUseCase as never,
       saga as never,
+      sagaQuery as never,
     );
   });
 
@@ -109,9 +102,75 @@ describe('OrdemServicoController', () => {
     );
   });
 
+  it('GET /ordens/:id/sagas/:sagaId returns a saga scoped to the order', async () => {
+    const createdAt = new Date();
+    sagaQuery.get.mockResolvedValue({
+      osId: 'os-1',
+      sagaId: 'saga-1',
+      action: 'INICIAR_DIAGNOSTICO',
+      status: 'PENDENTE',
+      createdAt,
+      updatedAt: createdAt,
+      steps: [],
+    });
+    const result = await controller.consultarSaga('os-1', 'saga-1');
+    expect(sagaQuery.get).toHaveBeenCalledWith('os-1', 'saga-1');
+    expect(result).toMatchObject({ osId: 'os-1', sagaId: 'saga-1' });
+  });
+
+  it('remote-dependent legacy endpoints respond with HTTP 202', () => {
+    for (const action of [
+      'iniciarDiagnostico',
+      'gerarOrcamento',
+      'aprovarOrcamento',
+      'reprovarOrcamento',
+      'iniciarExecucao',
+      'finalizar',
+    ] as const) {
+      expect(
+        Reflect.getMetadata(
+          HTTP_CODE_METADATA,
+          OrdemServicoController.prototype[action],
+        ),
+      ).toBe(202);
+    }
+  });
+
+  it('routes remote-dependent status changes through the Saga and returns 202', async () => {
+    const accepted = {
+      osId: 'os-1',
+      sagaId: 'saga-1',
+      commandId: 'cmd-1',
+      status: 'PENDENTE',
+    };
+    saga.abrirDiagnostico.mockResolvedValue(accepted);
+    const response = { status: jest.fn() };
+
+    await expect(
+      controller.avancar(
+        mockReq,
+        'os-1',
+        { novoStatus: S.EmDiagnostico },
+        response as never,
+      ),
+    ).resolves.toBe(accepted);
+
+    expect(saga.abrirDiagnostico).toHaveBeenCalledWith('os-1', 'usuario-1');
+    expect(response.status).toHaveBeenCalledWith(202);
+    expect(avancarStatusOrdemServicoUseCase.execute).not.toHaveBeenCalled();
+  });
+
   it('POST avancar-status delega novoStatus com usuarioId', async () => {
     avancarStatusOrdemServicoUseCase.execute.mockResolvedValue({});
-    await controller.avancar(mockReq, 'os-1', { novoStatus: S.Entregue });
+    saga.exigirPagamentoAprovado.mockResolvedValue(undefined);
+    const response = { status: jest.fn() };
+    await controller.avancar(
+      mockReq,
+      'os-1',
+      { novoStatus: S.Entregue },
+      response as never,
+    );
+    expect(saga.exigirPagamentoAprovado).toHaveBeenCalledWith('os-1');
     expect(avancarStatusOrdemServicoUseCase.execute).toHaveBeenCalledWith(
       'os-1',
       S.Entregue,
@@ -119,69 +178,58 @@ describe('OrdemServicoController', () => {
     );
   });
 
-  it('POST iniciar-diagnostico delega transição', async () => {
-    transicionarOrdemServicoUseCase.execute.mockResolvedValue({});
-    await controller.iniciarDiagnostico(mockReq, 'os-1');
-    expect(transicionarOrdemServicoUseCase.execute).toHaveBeenCalledWith(
-      'os-1',
-      S.EmDiagnostico,
-      'usuario-1',
+  it('POST iniciar-diagnostico aceita a operação e retorna a pendência', async () => {
+    const accepted = {
+      osId: 'os-1',
+      sagaId: 'saga-1',
+      commandId: 'cmd-1',
+      status: 'PENDENTE',
+    };
+    saga.abrirDiagnostico.mockResolvedValue(accepted);
+    await expect(controller.iniciarDiagnostico(mockReq, 'os-1')).resolves.toBe(
+      accepted,
     );
-    expect(saga.abrirDiagnostico).toHaveBeenCalledWith('os-1');
+    expect(saga.abrirDiagnostico).toHaveBeenCalledWith('os-1', 'usuario-1');
+    expect(transicionarOrdemServicoUseCase.execute).not.toHaveBeenCalled();
   });
 
-  it('POST gerar-orcamento delega', async () => {
-    gerarOrcamentoOrdemServicoUseCase.execute.mockResolvedValue({
-      valorTotal: 100,
-    });
-    await controller.gerarOrcamento(mockReq, 'os-1');
-    expect(gerarOrcamentoOrdemServicoUseCase.execute).toHaveBeenCalledWith(
-      'os-1',
-      'usuario-1',
+  it('POST gerar-orcamento retorna aceitação sem expor status como concluído', async () => {
+    const accepted = {
+      osId: 'os-1',
+      sagaId: 'saga-1',
+      commandId: 'cmd-1',
+      status: 'PENDENTE',
+    };
+    saga.gerarOrcamento.mockResolvedValue(accepted);
+    await expect(controller.gerarOrcamento(mockReq, 'os-1')).resolves.toBe(
+      accepted,
     );
-    expect(saga.concluirDiagnostico).toHaveBeenCalledWith('os-1');
-    expect(saga.gerarOrcamento).toHaveBeenCalledWith('os-1', 100);
+    expect(saga.gerarOrcamento).toHaveBeenCalledWith('os-1', 'usuario-1');
   });
 
   it('POST aprovar-orcamento delega o sub do cliente', async () => {
-    aprovarOrcamentoOrdemServicoUseCase.execute.mockResolvedValue({});
+    saga.aprovarOrcamento.mockResolvedValue({ status: 'PENDENTE' });
     await controller.aprovarOrcamento(mockClienteReq, 'os-1');
-    expect(aprovarOrcamentoOrdemServicoUseCase.execute).toHaveBeenCalledWith(
-      'os-1',
-      'cliente-1',
-    );
-    expect(saga.aprovarOrcamento).toHaveBeenCalledWith('os-1');
+    expect(saga.aprovarOrcamento).toHaveBeenCalledWith('os-1', 'cliente-1');
   });
 
   it('POST reprovar-orcamento delega o sub do cliente', async () => {
-    reprovarOrcamentoOrdemServicoUseCase.execute.mockResolvedValue({});
+    saga.reprovarOrcamento.mockResolvedValue({ status: 'PENDENTE' });
     await controller.reprovarOrcamento(mockClienteReq, 'os-1');
-    expect(reprovarOrcamentoOrdemServicoUseCase.execute).toHaveBeenCalledWith(
-      'os-1',
-      'cliente-1',
-    );
-    expect(saga.reprovarOrcamento).toHaveBeenCalledWith('os-1');
+    expect(saga.reprovarOrcamento).toHaveBeenCalledWith('os-1', 'cliente-1');
   });
 
   it('POST iniciar-execucao delega', async () => {
-    iniciarExecucaoOrdemServicoUseCase.execute.mockResolvedValue({});
+    saga.iniciarReparo.mockResolvedValue({ status: 'PENDENTE' });
     await controller.iniciarExecucao(mockReq, 'os-1');
-    expect(iniciarExecucaoOrdemServicoUseCase.execute).toHaveBeenCalled();
-    expect(saga.iniciarReparo).toHaveBeenCalledWith('os-1');
+    expect(saga.iniciarReparo).toHaveBeenCalledWith('os-1', 'usuario-1');
   });
 
   it('POST finalizar delega transição', async () => {
-    transicionarOrdemServicoUseCase.execute.mockResolvedValue({
-      valorTotal: 100,
-    });
+    saga.finalizar.mockResolvedValue({ status: 'PENDENTE' });
     await controller.finalizar(mockReq, 'os-1');
-    expect(transicionarOrdemServicoUseCase.execute).toHaveBeenCalledWith(
-      'os-1',
-      S.Finalizada,
-      'usuario-1',
-    );
-    expect(saga.concluirReparo).toHaveBeenCalledWith('os-1');
-    expect(saga.abrirPagamento).toHaveBeenCalledWith('os-1', 100);
+    expect(saga.finalizar).toHaveBeenCalledWith('os-1', 'usuario-1');
+    expect(transicionarOrdemServicoUseCase.execute).not.toHaveBeenCalled();
   });
 
   it('POST entregar delega transição', async () => {

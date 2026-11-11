@@ -1,7 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { NotFoundError } from '../../../common/application/errors/application.errors';
+import {
+  ConflictError,
+  NotFoundError,
+} from '../../../common/application/errors/application.errors';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In, LessThan, Not } from 'typeorm';
+import { isDeepStrictEqual } from 'node:util';
+import { randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   CLIENTE_TRANSACTIONAL_PORT,
   ClienteTransactionalPort,
@@ -25,6 +31,10 @@ import {
 import {
   OrdemServicoTransactionPort,
   OrdemServicoTransactionalOperations,
+  AppendSagaCommandInput,
+  CreateSagaCommandInput,
+  SagaResultProcessing,
+  SagaStatusQuery,
   OsPecaItemDraft,
   OsPecaItemState,
   OsServicoItemDraft,
@@ -42,6 +52,15 @@ import { OrdemServicoReadModelMapper } from '../mappers/ordem-servico-read-model
 import { ItemOsEstoqueEntity } from '../typeorm/entity/item-os-estoque.entity';
 import { ItemOsServicoEntity } from '../typeorm/entity/item-os-servico.entity';
 import { OrdemServicoTypeormEntity } from '../typeorm/entity/ordem-servico.typeorm.entity';
+import { SagaExecutionEntity } from '../../../saga/persistence/saga-execution.entity';
+import { SagaOutboxEntity } from '../../../saga/persistence/saga-outbox.entity';
+import { SagaStepEntity } from '../../../saga/persistence/saga-step.entity';
+import {
+  SagaCommandMessage,
+  SagaCommandType,
+  SagaResultMessage,
+} from '../../../saga/contracts/saga-message';
+import { HistoricoStatusOsEntity } from '../typeorm/entity/historico-status-os.entity';
 
 class OsTypeormHandle implements OsWorkflowHandle {
   constructor(readonly entity: OrdemServicoTypeormEntity) {}
@@ -101,7 +120,8 @@ class OsTypeormHandle implements OsWorkflowHandle {
 export class OrdemServicoTypeormTransaction
   implements OrdemServicoTransactionPort, OrdemServicoTransactionalOperations
 {
-  private em: EntityManager | null = null;
+  private readonly entityManagerContext =
+    new AsyncLocalStorage<EntityManager>();
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -121,25 +141,26 @@ export class OrdemServicoTypeormTransaction
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
-    this.em = qr.manager;
     try {
-      const result = await work(this);
+      const result = await this.entityManagerContext.run(qr.manager, () =>
+        work(this),
+      );
       await qr.commitTransaction();
       return result;
     } catch (error) {
       await qr.rollbackTransaction();
       throw error;
     } finally {
-      this.em = null;
       await qr.release();
     }
   }
 
   private manager(): EntityManager {
-    if (!this.em) {
+    const manager = this.entityManagerContext.getStore();
+    if (!manager) {
       throw new Error('Transação de ordem de serviço não iniciada.');
     }
-    return this.em;
+    return manager;
   }
 
   private toReadModel(
@@ -150,6 +171,458 @@ export class OrdemServicoTypeormTransaction
 
   private wrap(entity: OrdemServicoTypeormEntity): OsTypeormHandle {
     return new OsTypeormHandle(entity);
+  }
+
+  async lockOsAndEnsureNoActiveSaga(osId: string): Promise<void> {
+    const manager = this.manager();
+    const os = await manager.findOne(OrdemServicoTypeormEntity, {
+      where: { id: osId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!os) throw new NotFoundError('Ordem de serviço não encontrada.');
+
+    const activeExecution = await manager.findOne(SagaExecutionEntity, {
+      where: { osId, status: In(['PENDENTE', 'EM_PROCESSAMENTO']) },
+    });
+    if (activeExecution) {
+      throw new ConflictError(
+        'Já existe uma operação Saga pendente para esta ordem de serviço.',
+      );
+    }
+  }
+
+  async createSagaCommand(input: CreateSagaCommandInput): Promise<void> {
+    const { execution, step } = input;
+    if (
+      execution.id !== step.command.sagaId ||
+      execution.osId !== step.command.osId
+    ) {
+      throw new Error('Comando da Saga não corresponde à execução informada.');
+    }
+
+    const executionEntity = this.manager().create(SagaExecutionEntity, {
+      id: execution.id,
+      osId: execution.osId,
+      action: execution.action,
+      requestedBy: execution.requestedBy,
+      context: execution.context ?? {},
+      status: 'PENDENTE',
+    });
+    await this.manager().save(SagaExecutionEntity, executionEntity);
+    await this.saveSagaStepAndOutbox(execution.id, step);
+  }
+
+  async appendSagaCommand(input: AppendSagaCommandInput): Promise<void> {
+    await this.saveSagaStepAndOutbox(input.sagaId, input.step);
+  }
+
+  async processSagaResult(
+    result: SagaResultMessage,
+  ): Promise<SagaResultProcessing> {
+    return this.runInTransaction(async () => this.applySagaResult(result));
+  }
+
+  async findSagaStatus(
+    osId: string,
+    sagaId: string,
+  ): Promise<SagaStatusQuery | null> {
+    const execution = await this.dataSource
+      .getRepository(SagaExecutionEntity)
+      .findOne({ where: { id: sagaId, osId } });
+    if (!execution) return null;
+    const steps = await this.dataSource.getRepository(SagaStepEntity).find({
+      where: { sagaId },
+      order: { sequence: 'ASC' },
+    });
+    return {
+      sagaId: execution.id,
+      osId: execution.osId,
+      action: execution.action,
+      status: execution.status,
+      createdAt: execution.createdAt,
+      updatedAt: execution.updatedAt,
+      steps: steps.map((step) => ({
+        commandId: step.commandId,
+        sequence: step.sequence,
+        commandType: step.commandType,
+        status: step.status,
+        attemptCount: step.attemptCount,
+        retryable: step.retryable,
+        lastErrorCode: step.lastErrorCode,
+        lastErrorMessage: step.lastErrorMessage,
+        createdAt: step.createdAt,
+        updatedAt: step.updatedAt,
+        completedAt: step.completedAt,
+      })),
+    };
+  }
+
+  private async applySagaResult(
+    result: SagaResultMessage,
+  ): Promise<SagaResultProcessing> {
+    const manager = this.manager();
+    const step = await manager.findOne(SagaStepEntity, {
+      where: { commandId: result.commandId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!step) throw new Error('Etapa da Saga não encontrada');
+    if (step.sagaId !== result.sagaId) {
+      throw new Error('sagaId do resultado não corresponde à etapa');
+    }
+    const execution = await manager.findOne(SagaExecutionEntity, {
+      where: { id: result.sagaId, osId: result.osId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!execution) throw new Error('Execução da Saga não encontrada');
+    const outbox = await manager.findOne(SagaOutboxEntity, {
+      where: { commandId: result.commandId },
+    });
+    if (!outbox) throw new Error('Comando original da Saga não encontrado');
+    const command =
+      typeof outbox.body === 'string'
+        ? (JSON.parse(outbox.body) as SagaCommandMessage)
+        : outbox.body;
+    const expectedDestination = command.type.startsWith('BILLING_')
+      ? 'BILLING'
+      : 'EXECUCAO';
+    if (
+      command.sagaId !== result.sagaId ||
+      command.osId !== result.osId ||
+      step.commandType !== command.type ||
+      outbox.destination !== expectedDestination ||
+      command.correlationId !== result.correlationId ||
+      command.messageId !== result.causationId
+    ) {
+      throw new Error('Correlação do resultado não corresponde ao comando');
+    }
+
+    if (step.status === 'CONCLUIDA' || step.status === 'FALHA') {
+      if (!this.sameSagaResult(step.result, result)) {
+        throw new Error('Resultado conflitante para etapa já encerrada');
+      }
+      return { duplicate: true, statusChanges: [], domainEvents: [] };
+    }
+    if (step.status !== 'PENDENTE' && step.status !== 'EM_PROCESSAMENTO') {
+      throw new Error('Estado da etapa não aceita resultado');
+    }
+    if (step.sequence > 1) {
+      const incompletePreviousStep = await manager.findOne(SagaStepEntity, {
+        where: {
+          sagaId: step.sagaId,
+          sequence: LessThan(step.sequence),
+          status: Not('CONCLUIDA'),
+        },
+      });
+      if (incompletePreviousStep) {
+        throw new ConflictError(
+          'Resultado fora de sequência: há uma etapa anterior não concluída.',
+        );
+      }
+    }
+
+    const processing: SagaResultProcessing = {
+      duplicate: false,
+      statusChanges: [],
+      domainEvents: [],
+    };
+    step.result = result;
+    step.attemptCount += 1;
+    step.completedAt = new Date();
+    if (result.outcome === 'FALHA') {
+      step.status = 'FALHA';
+      step.retryable = result.payload.retryable;
+      step.lastErrorCode = result.payload.code;
+      step.lastErrorMessage = result.payload.message;
+      execution.status = 'FALHA';
+      await manager.save(SagaStepEntity, step);
+      await manager.save(SagaExecutionEntity, execution);
+      return processing;
+    }
+
+    step.status = 'CONCLUIDA';
+    step.retryable = false;
+    step.lastErrorCode = null;
+    step.lastErrorMessage = null;
+    const osId = result.osId;
+    const usuarioId = execution.requestedBy;
+    let hasNextStep = false;
+
+    switch (command.type) {
+      case SagaCommandType.ExecutionOpen:
+        if (command.payload.etapa === 'DIAGNOSTICO') {
+          processing.statusChanges.push(
+            await this.recordSagaStatusTransition(
+              osId,
+              StatusOrdemServico.EmDiagnostico,
+              usuarioId,
+            ),
+          );
+        } else {
+          const os = await this.loadOs(osId, { itensPeca: true });
+          const { anterior, novo } = os.avancarStatus(
+            StatusOrdemServico.EmExecucao,
+          );
+          await this.darBaixaPecasEmExecucao(os);
+          await this.saveOs(os);
+          await this.saveSagaHistory(osId, anterior, novo, usuarioId);
+          processing.statusChanges.push({
+            osId,
+            statusAnterior: anterior,
+            statusNovo: novo,
+            usuarioId,
+          });
+          processing.domainEvents.push('EXECUCAO_INICIADA');
+        }
+        break;
+      case SagaCommandType.ExecutionComplete:
+        if (command.payload.etapa === 'DIAGNOSTICO') {
+          await this.appendSagaCommand({
+            sagaId: execution.id,
+            step: {
+              sequence: step.sequence + 1,
+              destination: 'BILLING',
+              command: this.createChainedCommand(
+                result,
+                SagaCommandType.BillingQuoteGenerate,
+                this.contextAmount(execution),
+              ),
+            },
+          });
+          hasNextStep = true;
+        } else {
+          processing.statusChanges.push(
+            await this.recordSagaStatusTransition(
+              osId,
+              StatusOrdemServico.Finalizada,
+              usuarioId,
+            ),
+          );
+          await this.appendSagaCommand({
+            sagaId: execution.id,
+            step: {
+              sequence: step.sequence + 1,
+              destination: 'BILLING',
+              command: this.createChainedCommand(
+                result,
+                SagaCommandType.BillingPaymentOpen,
+                this.contextAmount(execution),
+              ),
+            },
+          });
+          hasNextStep = true;
+        }
+        break;
+      case SagaCommandType.BillingQuoteGenerate: {
+        const statusChange = await this.recordSagaStatusTransition(
+          osId,
+          StatusOrdemServico.AguardandoAprovacao,
+          usuarioId,
+        );
+        const os = await this.loadOs(osId, {
+          itensServico: true,
+          itensPeca: true,
+        });
+        os.valorTotal = this.contextAmount(execution);
+        await this.saveOs(os);
+        processing.statusChanges.push(statusChange);
+        processing.domainEvents.push('ORCAMENTO_GERADO');
+        break;
+      }
+      case SagaCommandType.BillingQuoteApprove: {
+        const os = await this.loadOs(osId, { itensPeca: true });
+        const first = os.avancarStatus(StatusOrdemServico.Aprovada);
+        await this.syncPecaDisponibilidadeAposAprovacao(os);
+        const target = os.todasPecasDisponiveis()
+          ? StatusOrdemServico.AguardandoServico
+          : StatusOrdemServico.AguardandoPecasInsumos;
+        const second = os.avancarStatus(target);
+        if (target === StatusOrdemServico.AguardandoServico) {
+          os.observacao = mergeObservacaoAvisoCompra(os.observacao, false);
+        }
+        await this.saveOs(os);
+        await this.saveSagaHistory(osId, first.anterior, first.novo, usuarioId);
+        await this.saveSagaHistory(
+          osId,
+          second.anterior,
+          second.novo,
+          usuarioId,
+        );
+        processing.statusChanges.push(
+          {
+            osId,
+            statusAnterior: first.anterior,
+            statusNovo: first.novo,
+            usuarioId,
+          },
+          {
+            osId,
+            statusAnterior: second.anterior,
+            statusNovo: second.novo,
+            usuarioId,
+          },
+        );
+        processing.domainEvents.push('ORCAMENTO_APROVADO');
+        break;
+      }
+      case SagaCommandType.BillingQuoteReject: {
+        const os = await this.loadOs(osId, { itensPeca: true });
+        const { anterior, novo } = os.avancarStatus(
+          StatusOrdemServico.Reprovada,
+        );
+        await this.estornarReservasAoReprovar(os);
+        await this.saveOs(os);
+        await this.saveSagaHistory(osId, anterior, novo, usuarioId);
+        processing.statusChanges.push({
+          osId,
+          statusAnterior: anterior,
+          statusNovo: novo,
+          usuarioId,
+        });
+        processing.domainEvents.push('ORCAMENTO_REPROVADO');
+        break;
+      }
+      case SagaCommandType.BillingPaymentOpen:
+        break;
+    }
+
+    await manager.save(SagaStepEntity, step);
+    execution.status = hasNextStep ? 'PENDENTE' : 'CONCLUIDA';
+    await manager.save(SagaExecutionEntity, execution);
+    return processing;
+  }
+
+  private sameSagaResult(
+    previous: Record<string, unknown> | null,
+    result: SagaResultMessage,
+  ): boolean {
+    if (!previous) return false;
+    const stored = previous as unknown as SagaResultMessage;
+    return (
+      stored.type === result.type &&
+      stored.commandId === result.commandId &&
+      stored.sagaId === result.sagaId &&
+      stored.osId === result.osId &&
+      stored.causationId === result.causationId &&
+      stored.correlationId === result.correlationId &&
+      stored.outcome === result.outcome &&
+      isDeepStrictEqual(stored.payload, result.payload)
+    );
+  }
+
+  private async recordSagaStatusTransition(
+    osId: string,
+    next: StatusOrdemServico,
+    usuarioId: string | null,
+  ): Promise<SagaResultProcessing['statusChanges'][number]> {
+    const os = await this.loadOs(osId, { itensServico: true, itensPeca: true });
+    const { anterior, novo } = os.avancarStatus(next);
+    await this.saveOs(os);
+    await this.saveSagaHistory(osId, anterior, novo, usuarioId);
+    return { osId, statusAnterior: anterior, statusNovo: novo, usuarioId };
+  }
+
+  private async saveSagaHistory(
+    osId: string,
+    statusAnterior: StatusOrdemServico,
+    statusNovo: StatusOrdemServico,
+    usuarioId: string | null,
+  ): Promise<void> {
+    const history = this.manager().create(HistoricoStatusOsEntity, {
+      os_id: osId,
+      statusAnterior,
+      statusNovo,
+      usuarioId,
+    });
+    await this.manager().save(HistoricoStatusOsEntity, history);
+  }
+
+  private contextAmount(execution: SagaExecutionEntity): number {
+    const amount = Number(execution.context?.valorTotal);
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new Error('valorTotal ausente no contexto da Saga');
+    }
+    return amount;
+  }
+
+  private createChainedCommand(
+    result: SagaResultMessage,
+    type:
+      | typeof SagaCommandType.BillingQuoteGenerate
+      | typeof SagaCommandType.BillingPaymentOpen,
+    valorTotal: number,
+  ): SagaCommandMessage {
+    return {
+      messageId: randomUUID(),
+      commandId: randomUUID(),
+      sagaId: result.sagaId,
+      osId: result.osId,
+      occurredAt: new Date().toISOString(),
+      correlationId: result.correlationId,
+      causationId: result.messageId,
+      schemaVersion: 1,
+      type,
+      payload: { valorTotal },
+    };
+  }
+
+  private async saveSagaStepAndOutbox(
+    sagaId: string,
+    step: CreateSagaCommandInput['step'],
+  ): Promise<void> {
+    const { command, sequence, destination } = step;
+    if (command.sagaId !== sagaId) {
+      throw new Error('Comando da Saga não corresponde à execução informada.');
+    }
+
+    const manager = this.manager();
+    const saga = await manager.findOne(SagaExecutionEntity, {
+      where: { id: sagaId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!saga) throw new NotFoundError('Execução da Saga não encontrada.');
+    const previousStep = await manager.findOne(SagaStepEntity, {
+      where: { sagaId },
+      order: { sequence: 'DESC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+    const expectedSequence = previousStep ? previousStep.sequence + 1 : 1;
+    if (sequence !== expectedSequence) {
+      throw new ConflictError(
+        `Sequência de etapa inválida; esperada ${expectedSequence}.`,
+      );
+    }
+    if (previousStep && previousStep.status !== 'CONCLUIDA') {
+      throw new ConflictError(
+        'Não é possível criar a próxima etapa antes de concluir a anterior.',
+      );
+    }
+
+    const stepEntity = manager.create(SagaStepEntity, {
+      commandId: command.commandId,
+      sagaId,
+      sequence,
+      commandType: command.type,
+      destination,
+      status: 'PENDENTE',
+      attemptCount: 0,
+      retryable: false,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      result: null,
+      completedAt: null,
+    });
+    await manager.save(SagaStepEntity, stepEntity);
+
+    const outboxEntity = manager.create(SagaOutboxEntity, {
+      messageId: command.messageId,
+      commandId: command.commandId,
+      destination,
+      body: command,
+      attemptCount: 0,
+      lockedUntil: null,
+      publishedAt: null,
+    });
+    await manager.save(SagaOutboxEntity, outboxEntity);
   }
 
   async findClienteIdByDocumento(documento: string): Promise<string> {

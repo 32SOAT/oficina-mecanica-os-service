@@ -1,4 +1,7 @@
-import { NotFoundError } from '../../../common/application/errors/application.errors';
+import {
+  ConflictError,
+  NotFoundError,
+} from '../../../common/application/errors/application.errors';
 import { DataSource, EntityManager } from 'typeorm';
 import { ClienteTransactionalPort } from '../../../clientes/application/ports/cliente-transactional.port';
 import { EstoqueTransactionalPort } from '../../../estoque/application/ports/estoque-transactional.port';
@@ -9,6 +12,13 @@ import { ItemOsEstoqueEntity } from '../typeorm/entity/item-os-estoque.entity';
 import { ItemOsServicoEntity } from '../typeorm/entity/item-os-servico.entity';
 import { OrdemServicoTypeormEntity } from '../typeorm/entity/ordem-servico.typeorm.entity';
 import { OrdemServicoTypeormTransaction } from './ordem-servico.typeorm-transaction';
+import {
+  SagaCommandMessage,
+  SagaCommandType,
+} from '../../../saga/contracts/saga-message';
+import { SagaExecutionEntity } from '../../../saga/persistence/saga-execution.entity';
+import { SagaOutboxEntity } from '../../../saga/persistence/saga-outbox.entity';
+import { SagaStepEntity } from '../../../saga/persistence/saga-step.entity';
 
 describe('OrdemServicoTypeormTransaction', () => {
   let transaction: OrdemServicoTypeormTransaction;
@@ -26,6 +36,7 @@ describe('OrdemServicoTypeormTransaction', () => {
     release: jest.Mock;
     manager: EntityManager;
   };
+  let dataSource: { createQueryRunner: jest.Mock };
   let clienteTransactional: jest.Mocked<ClienteTransactionalPort>;
   let veiculoTransactional: jest.Mocked<VeiculoTransactionalPort>;
   let servicoTransactional: jest.Mocked<ServicoTransactionalPort>;
@@ -50,9 +61,9 @@ describe('OrdemServicoTypeormTransaction', () => {
       manager: em as unknown as EntityManager,
     };
 
-    const dataSource = {
+    dataSource = {
       createQueryRunner: jest.fn().mockReturnValue(queryRunner),
-    } as unknown as DataSource;
+    };
 
     clienteTransactional = { findIdByDocumento: jest.fn() };
     veiculoTransactional = { findIdForCliente: jest.fn() };
@@ -75,7 +86,7 @@ describe('OrdemServicoTypeormTransaction', () => {
     };
 
     transaction = new OrdemServicoTypeormTransaction(
-      dataSource,
+      dataSource as unknown as DataSource,
       clienteTransactional,
       veiculoTransactional,
       servicoTransactional,
@@ -108,11 +119,292 @@ describe('OrdemServicoTypeormTransaction', () => {
     expect(queryRunner.release).toHaveBeenCalled();
   });
 
+  const makeSagaCommand = (): SagaCommandMessage => ({
+    messageId: '7d9f9748-b2d2-46ab-8106-fd5dad738b19',
+    commandId: 'a707820e-fbe3-483a-b5ae-3a69a3eb947c',
+    sagaId: 'dc0bfdd8-f0b9-48eb-8231-9e66297554f8',
+    osId: '9abeb153-d57f-4a92-b32a-918fc9e4abc0',
+    occurredAt: '2026-11-07T12:00:00.000Z',
+    correlationId: 'request-1',
+    causationId: null,
+    schemaVersion: 1,
+    type: SagaCommandType.BillingQuoteGenerate,
+    payload: { valorTotal: 125.5 },
+  });
+
+  const makeSagaStep = (command: SagaCommandMessage) => ({
+    command,
+    sequence: 1,
+    destination: 'BILLING' as const,
+  });
+
+  const makeSagaExecution = (osId: string) =>
+    Object.assign(new SagaExecutionEntity(), {
+      id: 'dc0bfdd8-f0b9-48eb-8231-9e66297554f8',
+      osId,
+      status: 'PENDENTE',
+    });
+
   it('runInTransaction faz rollback em erro', async () => {
     await expect(
       inTransaction(() => Promise.reject(new Error('falha'))),
     ).rejects.toThrow('falha');
     expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+  });
+
+  it('mantém o EntityManager isolado entre transações concorrentes', async () => {
+    let releaseFirst!: () => void;
+    let markFirstLoaded!: () => void;
+    const firstLoaded = new Promise<void>((resolve) => {
+      markFirstLoaded = resolve;
+    });
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    em.findOne.mockResolvedValue(makeOs());
+
+    const first = inTransaction(async (tx) => {
+      const handle = await tx.loadOs('os-1', {});
+      markFirstLoaded();
+      await firstGate;
+      return tx.saveOs(handle);
+    });
+    await firstLoaded;
+
+    const secondManager = {
+      ...em,
+      findOne: jest.fn().mockResolvedValue(makeOs({ id: 'os-2' })),
+      save: jest.fn((_entity: unknown, data: unknown) => Promise.resolve(data)),
+    };
+    const secondQueryRunner = {
+      ...queryRunner,
+      manager: secondManager as unknown as EntityManager,
+    };
+    dataSource.createQueryRunner.mockReturnValueOnce(secondQueryRunner);
+
+    await transaction.runInTransaction((tx) => tx.loadOs('os-2', {}));
+    releaseFirst();
+
+    await expect(first).resolves.toMatchObject({ id: 'os-1' });
+    expect(em.save).toHaveBeenCalledWith(
+      OrdemServicoTypeormEntity,
+      expect.objectContaining({ id: 'os-1' }),
+    );
+    expect(secondManager.save).not.toHaveBeenCalled();
+  });
+
+  it('persiste execução, etapa e outbox em conjunto ao criar uma Saga', async () => {
+    const command = makeSagaCommand();
+    em.findOne
+      .mockResolvedValueOnce(makeSagaExecution(command.osId))
+      .mockResolvedValueOnce(null);
+
+    await inTransaction((tx) =>
+      tx.createSagaCommand({
+        execution: {
+          id: command.sagaId,
+          osId: command.osId,
+          action: 'GERAR_ORCAMENTO',
+          requestedBy: 'cd120ff9-8861-4751-90d1-a89bc90411f4',
+        },
+        step: makeSagaStep(command),
+      }),
+    );
+
+    expect(em.save).toHaveBeenNthCalledWith(
+      1,
+      SagaExecutionEntity,
+      expect.objectContaining({ id: command.sagaId, osId: command.osId }),
+    );
+    expect(em.save).toHaveBeenNthCalledWith(
+      2,
+      SagaStepEntity,
+      expect.objectContaining({ commandId: command.commandId, sequence: 1 }),
+    );
+    expect(em.save).toHaveBeenNthCalledWith(
+      3,
+      SagaOutboxEntity,
+      expect.objectContaining({
+        messageId: command.messageId,
+        commandId: command.commandId,
+        body: command,
+      }),
+    );
+    expect(queryRunner.commitTransaction).toHaveBeenCalled();
+  });
+
+  it('serializa uma ação Saga bloqueando a OS antes de verificar execuções ativas', async () => {
+    em.findOne.mockImplementation((entity: unknown) => {
+      if (entity === OrdemServicoTypeormEntity)
+        return Promise.resolve(makeOs());
+      return Promise.resolve(null);
+    });
+
+    await inTransaction((tx) => tx.lockOsAndEnsureNoActiveSaga('os-1'));
+
+    expect(em.findOne).toHaveBeenNthCalledWith(
+      1,
+      OrdemServicoTypeormEntity,
+      expect.objectContaining({
+        where: { id: 'os-1' },
+        lock: { mode: 'pessimistic_write' },
+      }),
+    );
+    expect(em.findOne).toHaveBeenNthCalledWith(
+      2,
+      SagaExecutionEntity,
+      expect.objectContaining({
+        where: expect.objectContaining({ osId: 'os-1' }),
+      }),
+    );
+  });
+
+  it.each(['PENDENTE', 'EM_PROCESSAMENTO'] as const)(
+    'rejeita e faz rollback quando já existe Saga %s para a OS',
+    async (status) => {
+      em.findOne.mockImplementation((entity: unknown) => {
+        if (entity === OrdemServicoTypeormEntity)
+          return Promise.resolve(makeOs());
+        if (entity === SagaExecutionEntity)
+          return Promise.resolve({ osId: 'os-1', status });
+        return Promise.resolve(null);
+      });
+
+      await expect(
+        inTransaction((tx) => tx.lockOsAndEnsureNoActiveSaga('os-1')),
+      ).rejects.toBeInstanceOf(ConflictError);
+
+      expect(em.save).not.toHaveBeenCalled();
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
+    },
+  );
+
+  it('permite uma nova ação após execução terminal em falha', async () => {
+    em.findOne.mockImplementation((entity: unknown) => {
+      if (entity === OrdemServicoTypeormEntity)
+        return Promise.resolve(makeOs());
+      return Promise.resolve(null);
+    });
+
+    await expect(
+      inTransaction((tx) => tx.lockOsAndEnsureNoActiveSaga('os-1')),
+    ).resolves.toBeUndefined();
+    expect(queryRunner.commitTransaction).toHaveBeenCalled();
+  });
+
+  it('exige sequência 1 ao criar a primeira etapa', async () => {
+    const command = makeSagaCommand();
+    em.findOne
+      .mockResolvedValueOnce(makeSagaExecution(command.osId))
+      .mockResolvedValueOnce(null);
+
+    await expect(
+      inTransaction((tx) =>
+        tx.createSagaCommand({
+          execution: {
+            id: command.sagaId,
+            osId: command.osId,
+            action: 'GERAR_ORCAMENTO',
+            requestedBy: null,
+          },
+          step: { ...makeSagaStep(command), sequence: 2 },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    expect(em.save).toHaveBeenCalledTimes(1);
+    expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+  });
+
+  it('não anexa etapa quando a anterior ainda está pendente', async () => {
+    const command = makeSagaCommand();
+    em.findOne
+      .mockResolvedValueOnce(makeSagaExecution(command.osId))
+      .mockResolvedValueOnce({ sequence: 1, status: 'PENDENTE' });
+
+    await expect(
+      inTransaction((tx) =>
+        tx.appendSagaCommand({
+          sagaId: command.sagaId,
+          step: { ...makeSagaStep(command), sequence: 2 },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    expect(em.save).not.toHaveBeenCalled();
+  });
+
+  it('rejeita salto na sequência de etapas', async () => {
+    const command = makeSagaCommand();
+    em.findOne
+      .mockResolvedValueOnce(makeSagaExecution(command.osId))
+      .mockResolvedValueOnce({ sequence: 1, status: 'CONCLUIDA' });
+
+    await expect(
+      inTransaction((tx) =>
+        tx.appendSagaCommand({
+          sagaId: command.sagaId,
+          step: { ...makeSagaStep(command), sequence: 3 },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    expect(em.save).not.toHaveBeenCalled();
+  });
+
+  it('rolls back all Saga rows when the outbox insert fails', async () => {
+    const command = makeSagaCommand();
+    em.findOne
+      .mockResolvedValueOnce(makeSagaExecution(command.osId))
+      .mockResolvedValueOnce(null);
+    em.save
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('outbox insert failed'));
+
+    await expect(
+      inTransaction((tx) =>
+        tx.createSagaCommand({
+          execution: {
+            id: command.sagaId,
+            osId: command.osId,
+            action: 'GERAR_ORCAMENTO',
+            requestedBy: 'cd120ff9-8861-4751-90d1-a89bc90411f4',
+          },
+          step: makeSagaStep(command),
+        }),
+      ),
+    ).rejects.toThrow('outbox insert failed');
+
+    expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+    expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
+  });
+
+  it('acrescenta etapa e outbox a uma Saga sem criar nova execução', async () => {
+    const command = makeSagaCommand();
+    em.findOne
+      .mockResolvedValueOnce(makeSagaExecution(command.osId))
+      .mockResolvedValueOnce({ sequence: 1, status: 'CONCLUIDA' });
+
+    await inTransaction((tx) =>
+      tx.appendSagaCommand({
+        sagaId: command.sagaId,
+        step: { ...makeSagaStep(command), sequence: 2 },
+      }),
+    );
+
+    expect(em.save).toHaveBeenCalledTimes(2);
+    expect(em.save).toHaveBeenNthCalledWith(
+      1,
+      SagaStepEntity,
+      expect.objectContaining({ sagaId: command.sagaId, sequence: 2 }),
+    );
+    expect(em.save).toHaveBeenNthCalledWith(
+      2,
+      SagaOutboxEntity,
+      expect.objectContaining({ commandId: command.commandId }),
+    );
   });
 
   it('manager lança erro fora de transação', () => {

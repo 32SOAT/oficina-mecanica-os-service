@@ -26,6 +26,27 @@ export function ApiDataResponse(
   );
 }
 
+export function ApiAcceptedDataResponse(
+  type: Type<unknown>,
+  description = 'Ação aceita para processamento assíncrono',
+) {
+  return applyDecorators(
+    ApiExtraModels(type),
+    ApiResponse({
+      status: 202,
+      description,
+      schema: {
+        type: 'object',
+        description: envelopeDescription,
+        properties: {
+          data: { $ref: getSchemaPath(type) },
+        },
+        required: ['data'],
+      },
+    }),
+  );
+}
+
 export function ApiPaginatedResponse(
   type: Type<unknown>,
   status = 200,

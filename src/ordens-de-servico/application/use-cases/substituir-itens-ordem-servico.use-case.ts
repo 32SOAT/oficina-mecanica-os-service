@@ -34,6 +34,9 @@ export class SubstituirItensOrdemServicoUseCase {
     assertOsEmDiagnostico(os.status);
 
     await this.transaction.runInTransaction(async (tx) => {
+      await tx.lockOsAndEnsureNoActiveSaga(id);
+      const currentOs = await tx.loadOs(id, {});
+      assertOsEmDiagnostico(currentOs.status);
       await tx.replaceItensInDiagnostico(id, input);
     });
 

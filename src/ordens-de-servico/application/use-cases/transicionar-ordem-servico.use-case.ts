@@ -25,6 +25,7 @@ export class TransicionarOrdemServicoUseCase {
     usuarioId?: string | null,
   ): Promise<OrdemServicoReadModel> {
     return this.transaction.runInTransaction(async (tx) => {
+      await tx.lockOsAndEnsureNoActiveSaga(id);
       const os = await tx.loadOs(id, {
         itensServico: true,
         itensPeca: true,

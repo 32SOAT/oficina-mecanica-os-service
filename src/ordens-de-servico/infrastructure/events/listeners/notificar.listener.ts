@@ -28,7 +28,7 @@ import { StatusOrdemServico } from '../../../domain/status-ordem-servico.enum';
 import { OrdemServicoTypeormEntity } from '../../typeorm/entity/ordem-servico.typeorm.entity';
 import {
   StatusAlteradoEvent,
-  StatusAlteradoEventName,
+  StatusNotificacaoEventName,
 } from '../ordem-servico.events';
 
 type ClienteContato = {
@@ -58,7 +58,7 @@ export class NotificarListener {
     this.emailAdmin = resend.emailAdmin;
   }
 
-  @OnEvent(StatusAlteradoEventName)
+  @OnEvent(StatusNotificacaoEventName)
   async handle(event: StatusAlteradoEvent): Promise<void> {
     switch (event.statusNovo) {
       case StatusOrdemServico.AguardandoAprovacao:

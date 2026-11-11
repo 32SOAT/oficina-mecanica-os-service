@@ -3,9 +3,9 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 export function configureSwagger(app: INestApplication): void {
   const config = new DocumentBuilder()
-    .setTitle('oficina-mecanica-api-fase3')
+    .setTitle('OS Service')
     .setDescription(
-      'API para gerenciamento de oficina mecânica (clientes, veículos, OS, estoque, serviços).',
+      'API da ordem de serviço. Ações remotas com Billing e Execução são assíncronas via SQS e retornam 202 com identificadores da Saga; consulte o estado pela rota de Saga. A entrega mantém a consulta síncrona do pagamento no Billing.',
     )
     .setVersion('1.0')
     .addBearerAuth(

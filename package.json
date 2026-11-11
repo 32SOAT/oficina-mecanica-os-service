@@ -24,6 +24,7 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1164.0",
     "@faker-js/faker": "^8.4.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",

@@ -3,6 +3,80 @@ import {
   OrdemServicoReadModel,
 } from '../dto/ordem-servico.dto';
 import { StatusOrdemServico } from '../../domain/status-ordem-servico.enum';
+import {
+  SagaCommandMessage,
+  SagaResultMessage,
+  SagaStepStatus,
+} from '../../../saga/contracts/saga-message';
+
+export type SagaCommandDestination = 'BILLING' | 'EXECUCAO';
+
+export type SagaCommandStepInput = {
+  command: SagaCommandMessage;
+  sequence: number;
+  destination: SagaCommandDestination;
+};
+
+export type SagaExecutionInput = {
+  id: string;
+  osId: string;
+  action: string;
+  requestedBy: string | null;
+  context?: Record<string, unknown>;
+};
+
+export type CreateSagaCommandInput = {
+  execution: SagaExecutionInput;
+  step: SagaCommandStepInput;
+};
+
+export type AppendSagaCommandInput = {
+  sagaId: string;
+  step: SagaCommandStepInput;
+};
+
+export type SagaResultStatusChange = {
+  osId: string;
+  statusAnterior: StatusOrdemServico;
+  statusNovo: StatusOrdemServico;
+  usuarioId: string | null;
+};
+
+export type SagaResultDomainEvent =
+  | 'ORCAMENTO_GERADO'
+  | 'ORCAMENTO_APROVADO'
+  | 'ORCAMENTO_REPROVADO'
+  | 'EXECUCAO_INICIADA';
+
+export type SagaResultProcessing = {
+  duplicate: boolean;
+  statusChanges: SagaResultStatusChange[];
+  domainEvents: SagaResultDomainEvent[];
+};
+
+export type SagaStepQuery = {
+  commandId: string;
+  sequence: number;
+  commandType: string;
+  status: SagaStepStatus;
+  attemptCount: number;
+  retryable: boolean;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  completedAt: Date | null;
+};
+
+export type SagaStatusQuery = {
+  sagaId: string;
+  osId: string;
+  action: string;
+  status: SagaStepStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  steps: SagaStepQuery[];
+};
 
 export const ORDEM_SERVICO_TRANSACTION_PORT = 'ORDEM_SERVICO_TRANSACTION_PORT';
 
@@ -40,6 +114,9 @@ export interface OsWorkflowHandle {
 }
 
 export interface OrdemServicoTransactionalOperations {
+  lockOsAndEnsureNoActiveSaga(osId: string): Promise<void>;
+  createSagaCommand(input: CreateSagaCommandInput): Promise<void>;
+  appendSagaCommand(input: AppendSagaCommandInput): Promise<void>;
   findClienteIdByDocumento(documento: string): Promise<string>;
   findVeiculoIdForCliente(placa: string, clienteId: string): Promise<string>;
   buildItensServico(
@@ -85,4 +162,11 @@ export abstract class OrdemServicoTransactionPort {
   abstract runInTransaction<T>(
     work: (operations: OrdemServicoTransactionalOperations) => Promise<T>,
   ): Promise<T>;
+  abstract processSagaResult(
+    result: SagaResultMessage,
+  ): Promise<SagaResultProcessing>;
+  abstract findSagaStatus(
+    osId: string,
+    sagaId: string,
+  ): Promise<SagaStatusQuery | null>;
 }

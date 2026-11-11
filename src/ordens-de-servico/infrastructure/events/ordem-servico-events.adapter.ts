@@ -15,6 +15,7 @@ import {
   OsEmExecucaoEventName,
   StatusAlteradoEvent,
   StatusAlteradoEventName,
+  StatusNotificacaoEventName,
 } from './ordem-servico.events';
 
 @Injectable()
@@ -29,6 +30,19 @@ export class OrdemServicoEventsAdapter implements OrdemServicoEventsPort {
   ): void {
     this.eventEmitter.emit(
       StatusAlteradoEventName,
+      new StatusAlteradoEvent(osId, statusAnterior, statusNovo, usuarioId),
+    );
+    this.emitStatusNotificacao(osId, statusAnterior, statusNovo, usuarioId);
+  }
+
+  emitStatusNotificacao(
+    osId: string,
+    statusAnterior: StatusOrdemServico | null,
+    statusNovo: StatusOrdemServico,
+    usuarioId: string | null,
+  ): void {
+    this.eventEmitter.emit(
+      StatusNotificacaoEventName,
       new StatusAlteradoEvent(osId, statusAnterior, statusNovo, usuarioId),
     );
   }
