@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Req } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -11,6 +11,8 @@ import { Roles } from '../../../auth/presentation/decorators/roles.decorator';
 import { FindOrdemServicoByIdUseCase } from '../../application/use-cases/find-ordem-servico-by-id.use-case';
 import { FindOrdemServicoHistoricoUseCase } from '../../application/use-cases/find-ordem-servico-historico.use-case';
 import { StatusPublicoResponse } from '../dto/status-publico.response';
+import type { AuthenticatedRequest } from '../../../auth/presentation/interfaces/authenticated-request.interface';
+import { assertClienteOwnsOrdem } from '../assert-cliente-owns-ordem';
 
 @ApiBearerAuth('JWT-auth')
 @ApiTags('Ordens de Serviço (cliente)')
@@ -26,7 +28,7 @@ export class ConsultaOrdemServicoController {
   @ApiOperation({
     summary: 'Consultar status da OS (cliente)',
     description:
-      'Exige JWT com role cliente. Não expõe dados sensíveis do cliente (ex.: CPF, e-mail).',
+      'Exige JWT com role cliente e valida a propriedade da OS. Não expõe dados sensíveis do cliente (ex.: CPF, e-mail).',
   })
   @ApiParam({
     name: 'id',
@@ -47,9 +49,11 @@ export class ConsultaOrdemServicoController {
   })
   @ApiResponse({ status: 404, description: 'OS não encontrada.' })
   async consultarStatus(
+    @Req() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<StatusPublicoResponse> {
     const os = await this.findOrdemServicoByIdUseCase.execute(id);
+    assertClienteOwnsOrdem(req.user.sub, os);
     const historico = await this.findOrdemServicoHistoricoUseCase.execute(id);
     return StatusPublicoResponse.fromReadModel(os, historico);
   }

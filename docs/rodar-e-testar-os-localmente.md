@@ -150,19 +150,13 @@ PLACA=$(jq -r '.placa' <<<"$VEICULO")
 SERVICO_ID=$(jq -r '.data[0].id' <<<"$SERVICOS")
 ```
 
-Gere um JWT local de cliente para aprovar o orçamento. Esse token é apenas para o ambiente local e usa `JWT_SECRET` do `.env` da OS:
+Obtenha o JWT do cliente diretamente na OS com o CPF cadastrado:
 
 ```bash
-CLIENT_TOKEN=$(CLIENTE_ID="$CLIENTE_ID" CLIENTE_DOCUMENTO="$CLIENTE_DOCUMENTO" \
-  node -r dotenv/config -e '
-    const { JwtService } = require("@nestjs/jwt");
-    const jwt = new JwtService({ secret: process.env.JWT_SECRET });
-    jwt.signAsync({
-      sub: process.env.CLIENTE_ID,
-      role: "cliente",
-      cpf: process.env.CLIENTE_DOCUMENTO
-    }, { expiresIn: "1h" }).then(token => process.stdout.write(token));
-  ')
+CLIENT_TOKEN=$(curl -fsS -X POST "$OS_URL/api/v1/auth/cpf" \
+  -H 'Content-Type: application/json' \
+  -d "$(jq -n --arg cpf "$CLIENTE_DOCUMENTO" '{cpf: $cpf}')" \
+  | jq -r '.data.token')
 ```
 
 Crie uma OS com um serviço e sem peças, para evitar dependência de disponibilidade de estoque:

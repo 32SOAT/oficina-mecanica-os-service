@@ -2,6 +2,7 @@ import { OrdemServicoController } from './ordem-servico.controller';
 import { StatusOrdemServico as S } from '../../domain/status-ordem-servico.enum';
 import { type AuthenticatedRequest } from '../../../auth/presentation/interfaces/authenticated-request.interface';
 import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
+import { ForbiddenError } from '../../../common/application/errors/application.errors';
 
 const mockReq = {
   user: { sub: 'usuario-1', role: 'admin', email: 'a@b.c', username: 'admin' },
@@ -208,16 +209,36 @@ describe('OrdemServicoController', () => {
   });
 
   it('POST aprovar-orcamento delega o sub do cliente', async () => {
+    findOrdemServicoByIdUseCase.execute.mockResolvedValue({
+      cliente_id: 'cliente-1',
+    });
     saga.aprovarOrcamento.mockResolvedValue({ status: 'PENDENTE' });
     await controller.aprovarOrcamento(mockClienteReq, 'os-1');
     expect(saga.aprovarOrcamento).toHaveBeenCalledWith('os-1', 'cliente-1');
   });
 
   it('POST reprovar-orcamento delega o sub do cliente', async () => {
+    findOrdemServicoByIdUseCase.execute.mockResolvedValue({
+      cliente_id: 'cliente-1',
+    });
     saga.reprovarOrcamento.mockResolvedValue({ status: 'PENDENTE' });
     await controller.reprovarOrcamento(mockClienteReq, 'os-1');
     expect(saga.reprovarOrcamento).toHaveBeenCalledWith('os-1', 'cliente-1');
   });
+
+  it.each(['aprovarOrcamento', 'reprovarOrcamento'] as const)(
+    'nega %s em OS de outro cliente antes de iniciar a saga',
+    async (action) => {
+      findOrdemServicoByIdUseCase.execute.mockResolvedValue({
+        cliente_id: 'outro-cliente',
+      });
+      await expect(
+        controller[action](mockClienteReq, 'os-1'),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(saga.aprovarOrcamento).not.toHaveBeenCalled();
+      expect(saga.reprovarOrcamento).not.toHaveBeenCalled();
+    },
+  );
 
   it('POST iniciar-execucao delega', async () => {
     saga.iniciarReparo.mockResolvedValue({ status: 'PENDENTE' });

@@ -72,6 +72,9 @@ sequenceDiagram
   participant SQS as Filas SQS FIFO
   participant Cliente
 
+  Cliente->>OS: POST /api/v1/auth/cpf
+  OS-->>Cliente: JWT de cliente
+
   Admin->>OS: iniciar diagnóstico
   OS->>OS: bloqueia linha da OS e verifica Saga ativa
   OS->>OS: grava etapa Saga e outbox
@@ -93,6 +96,7 @@ sequenceDiagram
   OS->>OS: grava AGUARDANDO_APROVACAO após sucessos
 
   Cliente->>OS: aprovar ou reprovar
+  OS->>OS: compara JWT.sub com OS.cliente_id
   alt aprovado e estoque cobre
     OS->>SQS: BILLING_QUOTE_APPROVE
     SQS->>Bill: comando
@@ -143,7 +147,7 @@ sequenceDiagram
   end
 ```
 
-A porta pública é o API Gateway, e ela não lista cada rota. `POST /auth/cpf` vai para a Lambda, que consulta o cliente na OS por HTTP. O proxy geral leva o restante da OS: login de administrador, cadastro e ordem. No billing, só o checkout e a cobrança atravessam o gateway, sem escolher perfil: o dono do veículo e o administrador usam os dois. Orçamento, execução e a abertura do pagamento ficam fora dessa borda. A OS chama esses serviços direto.
+A porta pública é o API Gateway, e ela não lista cada rota. O proxy geral leva `POST /api/v1/auth/cpf` e o restante da OS: login de administrador, cadastro e ordem. No billing, só o checkout e a cobrança atravessam o gateway, sem escolher perfil: o dono do veículo e o administrador usam os dois. Orçamento, execução e a abertura do pagamento ficam fora dessa borda. A OS chama esses serviços direto.
 
 O status canônico que depende de um comando remoto só é gravado após o resultado de sucesso. A etapa e a outbox são persistidas primeiro para que a OS possa retomar a operação após falha ou reinício. Cada consumidor aplica comandos idempotentemente; resultados duplicados não repetem a transição nem o histórico. Estorno no Mercado Pago não faz parte deste fluxo. A decisão de consultar o pagamento, em vez de receber webhook, está na [ADR 002](./adr/002-consulta-ativa-do-pagamento.md). A divisão dos serviços está na [ADR 001](./adr/001-divisao-dos-servicos-e-banco-por-aplicacao.md). O que entra no gateway, e por que o corpo não é cifrado de novo, está na [ADR 003](./adr/003-borda-publica-do-gateway.md).
 

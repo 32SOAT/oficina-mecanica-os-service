@@ -49,6 +49,7 @@ import {
   SagaStatusResponseDto,
 } from '../../../saga/presentation/saga-status-response.dto';
 import { SagaAcceptedResponse } from '../../../saga/saga.client';
+import { assertClienteOwnsOrdem } from '../assert-cliente-owns-ordem';
 
 @ApiBearerAuth('JWT-auth')
 @ApiTags('Ordens de Serviço (admin)')
@@ -198,7 +199,7 @@ export class OrdemServicoController {
   @ApiOperation({
     summary: 'Aprovar orçamento (cliente)',
     description:
-      'Exige JWT com role cliente (Lambda POST /auth/cpf). Aceita a decisão via SQS e retorna 202; o status da OS muda depois do resultado. O histórico grava o sub do token em usuario_id.',
+      'Exige JWT com role cliente (POST /api/v1/auth/cpf) e valida a propriedade da OS. Aceita a decisão via SQS e retorna 202; o status da OS muda depois do resultado. O histórico grava o sub do token em usuario_id.',
   })
   @ApiResponse({
     status: 401,
@@ -212,6 +213,8 @@ export class OrdemServicoController {
     @Req() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
+    const os = await this.findOrdemServicoByIdUseCase.execute(id);
+    assertClienteOwnsOrdem(req.user.sub, os);
     return this.saga.aprovarOrcamento(id, req.user.sub);
   }
 
@@ -226,7 +229,7 @@ export class OrdemServicoController {
   @ApiOperation({
     summary: 'Reprovar orçamento (cliente)',
     description:
-      'Exige JWT com role cliente (Lambda POST /auth/cpf). Aceita a decisão via SQS e retorna 202; a OS estorna reservas e muda o status depois do resultado. O histórico grava o sub do token em usuario_id.',
+      'Exige JWT com role cliente (POST /api/v1/auth/cpf) e valida a propriedade da OS. Aceita a decisão via SQS e retorna 202; a OS estorna reservas e muda o status depois do resultado. O histórico grava o sub do token em usuario_id.',
   })
   @ApiResponse({
     status: 401,
@@ -240,6 +243,8 @@ export class OrdemServicoController {
     @Req() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
+    const os = await this.findOrdemServicoByIdUseCase.execute(id);
+    assertClienteOwnsOrdem(req.user.sub, os);
     return this.saga.reprovarOrcamento(id, req.user.sub);
   }
 

@@ -8,7 +8,6 @@ import {
   Patch,
   Post,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -34,8 +33,6 @@ import {
   ApiPaginatedResponse,
   ApiWrappedResponse,
 } from '../../../common/decorators/swagger-response.decorator';
-import { Public } from '../../../auth/presentation/decorators/public.decorator';
-import { SagaTokenGuard } from '../../../saga/saga-token.guard';
 
 @ApiBearerAuth('JWT-auth')
 @ApiTags('Clientes')
@@ -82,33 +79,6 @@ export class ClienteController {
         ClienteResponseDto.fromDomain(cliente),
       ),
       meta: result.meta,
-    };
-  }
-
-  @Public()
-  @UseGuards(SagaTokenGuard)
-  @Post('consulta-auth')
-  @ApiOperation({
-    summary: 'Consulta de cliente para a autenticação',
-    description:
-      'Usada pela Lambda de CPF. Exige o token da saga e não aceita JWT de usuário.',
-  })
-  @ApiBody({ type: FindClienteByDocumentDto })
-  @ApiResponse({
-    status: 401,
-    description: 'Token da saga ausente ou inválido.',
-  })
-  @ApiResponse({ status: 404, description: 'Cliente não encontrado.' })
-  async consultaAuth(
-    @Body() findClienteByDocumentDto: FindClienteByDocumentDto,
-  ) {
-    const cliente = await this.findClienteByDocumentoUseCase.execute(
-      findClienteByDocumentDto.documento,
-    );
-    return {
-      id: cliente.id,
-      documento: cliente.documento.toString(),
-      deletedAt: cliente.deletedAt,
     };
   }
 

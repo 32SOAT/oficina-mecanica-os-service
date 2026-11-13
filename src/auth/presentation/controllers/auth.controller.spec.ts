@@ -15,12 +15,14 @@ describe('AuthController', () => {
   const validateCredentialsUseCase = { execute: jest.fn() };
   const issueAuthTokenUseCase = { execute: jest.fn() };
   const changePasswordUseCase = { execute: jest.fn() };
+  const authenticateClienteCpfUseCase = { execute: jest.fn() };
 
   beforeEach(() => {
     controller = new AuthController(
       validateCredentialsUseCase as unknown as ValidateCredentialsUseCase,
       issueAuthTokenUseCase as unknown as IssueAuthTokenUseCase,
       changePasswordUseCase as unknown as ChangePasswordUseCase,
+      authenticateClienteCpfUseCase as never,
     );
     jest.clearAllMocks();
   });
@@ -75,6 +77,18 @@ describe('AuthController', () => {
         message: 'Senha alterada com sucesso.',
       });
     });
+  });
+
+  it('POST /auth/cpf retorna o token de cliente emitido pela OS', async () => {
+    authenticateClienteCpfUseCase.execute.mockResolvedValue({
+      token: 'cliente-jwt',
+    });
+    await expect(
+      controller.loginCpf({ cpf: '529.982.247-25' }),
+    ).resolves.toEqual({ token: 'cliente-jwt' });
+    expect(authenticateClienteCpfUseCase.execute).toHaveBeenCalledWith(
+      '529.982.247-25',
+    );
   });
 });
 
@@ -157,7 +171,7 @@ describe('JwtAuthGuard', () => {
     expect(req).toHaveProperty('user', { ...payload, role: 'admin' });
   });
 
-  it('allows access with cliente token from Lambda', async () => {
+  it('allows access with cliente token from OS', async () => {
     const payload = {
       sub: 'cliente-1',
       cpf: '52998224725',

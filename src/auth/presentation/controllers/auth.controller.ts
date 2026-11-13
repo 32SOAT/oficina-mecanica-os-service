@@ -17,6 +17,9 @@ import { ChangePasswordDto } from '../dto/change-password.dto';
 import { LoginDto } from '../dto/login.dto';
 import { LoginResponseDto } from '../dto/login-response.dto';
 import { AuthPresentationMapper } from '../mappers/auth-presentation.mapper';
+import { AuthenticateClienteCpfUseCase } from '../../application/use-cases/authenticate-cliente-cpf.use-case';
+import { LoginCpfDto, LoginCpfResponseDto } from '../dto/login-cpf.dto';
+import { ApiDataResponse } from '../../../common/decorators/swagger-response.decorator';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -25,7 +28,25 @@ export class AuthController {
     private readonly validateCredentialsUseCase: ValidateCredentialsUseCase,
     private readonly issueAuthTokenUseCase: IssueAuthTokenUseCase,
     private readonly changePasswordUseCase: ChangePasswordUseCase,
+    private readonly authenticateClienteCpfUseCase: AuthenticateClienteCpfUseCase,
   ) {}
+
+  @Public()
+  @Post('cpf')
+  @ApiOperation({
+    summary: 'Login do cliente por CPF',
+    description: 'Valida o CPF e emite um JWT de cliente pela OS.',
+  })
+  @ApiBody({ type: LoginCpfDto })
+  @ApiDataResponse(LoginCpfResponseDto, 200, 'Cliente autenticado')
+  @ApiResponse({ status: 400, description: 'CPF ausente ou inválido.' })
+  @ApiResponse({
+    status: 401,
+    description: 'Cliente não encontrado ou inativo.',
+  })
+  async loginCpf(@Body() dto: LoginCpfDto): Promise<LoginCpfResponseDto> {
+    return this.authenticateClienteCpfUseCase.execute(dto.cpf);
+  }
 
   @Public()
   @Post('login')

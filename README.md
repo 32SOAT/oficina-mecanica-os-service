@@ -83,6 +83,6 @@ As rotas de ação continuam com os mesmos caminhos, mas ações que dependem de
 6. Consulte `GET /api/v1/ordens/:id/sagas/:sagaId` usando os identificadores da resposta `202`. Abra `http://localhost:3002/api/v1/pagamentos/:osId/checkout` e pague com o cartão de teste. A order aprovada grava o pagamento como `APROVADO`.
 7. `POST /api/v1/ordens/:id/entregar` continua síncrono e só segue se o pagamento estiver aprovado.
 
-O login de administrador continua em `POST /api/v1/auth/login` (`admin@oficina.com` / `admin123` depois das migrations) e serve para abrir, diagnosticar, executar, finalizar e entregar. Aprovar e reprovar o orçamento continuam exigindo JWT com `role: cliente`, `sub` e `cpf`, assinado com o `JWT_SECRET` do `.env`. Sem a Lambda, esse token pode ser gerado na máquina local.
+O login de administrador continua em `POST /api/v1/auth/login` (`admin@oficina.com` / `admin123` depois das migrations) e serve para abrir, diagnosticar, executar, finalizar e entregar. O cliente chama `POST /api/v1/auth/cpf` com `{ "cpf": "529.982.247-25" }` e recebe um JWT com `role: cliente`, `sub` e `cpf`. A OS valida se a ordem pertence ao cliente antes da consulta de status ou da aprovação/reprovação do orçamento.
 
 `POST /api/v1/seeding` popula cliente, veículo, serviço, estoque e usuários. A senha dos usuários criados pelo seed é `SeedPassword123!`.

@@ -91,4 +91,4 @@ Nenhum serviço abre conexão com o banco de outro. O que precisa cruzar a front
 
 ## Evolução prevista
 
-Mensageria (SQS), deploy em Kubernetes e a Lambda de CPF passando a chamar a OS por HTTP em vez de ler a tabela de cliente. Essas etapas não alteram o dono de cada dado definido aqui.
+Mensageria (SQS), deploy em Kubernetes e autenticação por CPF na própria OS. Essas etapas não alteram o dono de cada dado definido aqui.
