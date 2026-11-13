@@ -37,6 +37,23 @@ describe('Saga message contracts', () => {
     ).toBe(false);
   });
 
+  it('accepts EXECUTION_REOPEN only with an execution stage', () => {
+    expect(
+      isSagaCommandMessage({
+        ...envelope,
+        type: 'EXECUTION_REOPEN',
+        payload: { etapa: 'REPARO' },
+      }),
+    ).toBe(true);
+    expect(
+      isSagaCommandMessage({
+        ...envelope,
+        type: 'EXECUTION_REOPEN',
+        payload: {},
+      }),
+    ).toBe(false);
+  });
+
   it('rejects non-UUID identifiers persisted in UUID columns', () => {
     expect(
       isSagaCommandMessage({

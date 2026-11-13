@@ -34,7 +34,7 @@ Desabilitar o relay interrompe novas publicações, mas não rejeita ações na 
 | DLQ                         | Retenção de 14 dias; mensagem movida após 5 recebimentos                                  |
 | Criptografia                | SSE-SQS nas filas principais e DLQs                                                       |
 
-Uma falha de negócio registrada pelo participante como `FALHA` encerra a etapa/Saga; o retry de transporte do SQS não transforma essa falha terminal em nova ação de negócio. Mensagem inválida ou falha transitória não confirmada pode ser entregue novamente e, depois de cinco recebimentos, seguir para DLQ. Consumidores rejeitam `schemaVersion` não suportada.
+Uma falha de negócio registrada pelo participante como `FALHA` encerra a etapa. Quando a segunda etapa de `GERAR_ORCAMENTO` ou `FINALIZAR` falha, a OS entra em `COMPENSANDO` e publica `EXECUTION_REOPEN`; o resultado bem sucedido encerra a Saga como `COMPENSADA`. Uma falha na primeira etapa encerra a Saga como `FALHA`. Uma falha de compensação deixa `FALHA_COMPENSACAO` e bloqueia novas ações até reconciliação. O retry de transporte do SQS não transforma falha de negócio em nova ação. Mensagem inválida ou falha transitória não confirmada pode ser entregue novamente e, depois de cinco recebimentos, seguir para DLQ. Consumidores rejeitam `schemaVersion` não suportada. Implante a Execução que aceita `EXECUTION_REOPEN` antes de habilitar a OS que o publica.
 
 ## Acompanhamento e inspeção
 
@@ -53,7 +53,7 @@ ORDER BY available_at;
 -- Sagas com falha ou ainda em andamento
 SELECT id AS saga_id, os_id, action, status, created_at, updated_at
 FROM saga_execution
-WHERE status IN ('PENDENTE', 'EM_PROCESSAMENTO', 'FALHA')
+WHERE status IN ('PENDENTE', 'EM_PROCESSAMENTO', 'FALHA', 'COMPENSANDO', 'FALHA_COMPENSACAO')
 ORDER BY updated_at;
 
 -- Etapas e códigos de erro para uma Saga específica
@@ -89,7 +89,7 @@ Em local, use o mesmo comando com `--endpoint-url http://localhost:4566`. Atribu
 
    Acompanhe o task handle retornado com `aws sqs list-message-move-tasks --source-arn "$DLQ_ARN"`. Esta entrega não inclui endpoint para redrive individual ou retry de Saga. Se for necessário replay individual, não republique o body manualmente: reconcilie com as equipes donas do serviço e use apenas procedimento aprovado que preserve `commandId` e deduplicação.
 
-5. Não altere manualmente `saga_execution`, `saga_step` ou `saga_outbox`. `FALHA` é estado terminal nesta entrega. Uma nova ação de negócio precisa respeitar a transição canônica da OS e não pode começar enquanto existir Saga `PENDENTE` ou `EM_PROCESSAMENTO`.
+5. Não altere manualmente `saga_execution`, `saga_step` ou `saga_outbox`. `FALHA` e `COMPENSADA` são terminais; `COMPENSANDO` indica compensação pendente. `FALHA_COMPENSACAO` bloqueia novas ações até reconciliação do estado real da OS e da Execução. Uma nova ação de negócio precisa respeitar a transição canônica da OS.
 
 Antes de redrive de qualquer comando relacionado a pagamento, consulte o estado atual no Mercado Pago e reconcilie com o pagamento local do Billing. A abertura local do pagamento pendente é idempotente por `commandId`; cobrança de cartão ocorre apenas pelo checkout explícito e não é uma etapa da Saga.
 

@@ -5,6 +5,7 @@ export const SAGA_SCHEMA_VERSION = 1 as const;
 export const SagaCommandType = {
   ExecutionOpen: 'EXECUTION_OPEN',
   ExecutionComplete: 'EXECUTION_COMPLETE',
+  ExecutionReopen: 'EXECUTION_REOPEN',
   BillingQuoteGenerate: 'BILLING_QUOTE_GENERATE',
   BillingQuoteApprove: 'BILLING_QUOTE_APPROVE',
   BillingQuoteReject: 'BILLING_QUOTE_REJECT',
@@ -24,11 +25,22 @@ export const SagaStepStatus = {
 export type SagaStepStatus =
   (typeof SagaStepStatus)[keyof typeof SagaStepStatus];
 
+export const SagaExecutionStatus = {
+  ...SagaStepStatus,
+  Compensando: 'COMPENSANDO',
+  Compensada: 'COMPENSADA',
+  FalhaCompensacao: 'FALHA_COMPENSACAO',
+} as const;
+
+export type SagaExecutionStatus =
+  (typeof SagaExecutionStatus)[keyof typeof SagaExecutionStatus];
+
 export type EtapaExecucao = 'DIAGNOSTICO' | 'REPARO';
 
 export type SagaCommandPayloads = {
   [SagaCommandType.ExecutionOpen]: { etapa: EtapaExecucao };
   [SagaCommandType.ExecutionComplete]: { etapa: EtapaExecucao };
+  [SagaCommandType.ExecutionReopen]: { etapa: EtapaExecucao };
   [SagaCommandType.BillingQuoteGenerate]: { valorTotal: number };
   [SagaCommandType.BillingQuoteApprove]: Record<string, never>;
   [SagaCommandType.BillingQuoteReject]: Record<string, never>;
@@ -87,6 +99,7 @@ const amountPayloadSchema = Joi.object({
 const commandVariants: Array<[SagaCommandType, Joi.Schema]> = [
   [SagaCommandType.ExecutionOpen, executionPayloadSchema],
   [SagaCommandType.ExecutionComplete, executionPayloadSchema],
+  [SagaCommandType.ExecutionReopen, executionPayloadSchema],
   [SagaCommandType.BillingQuoteGenerate, amountPayloadSchema],
   [SagaCommandType.BillingQuoteApprove, emptyPayloadSchema],
   [SagaCommandType.BillingQuoteReject, emptyPayloadSchema],

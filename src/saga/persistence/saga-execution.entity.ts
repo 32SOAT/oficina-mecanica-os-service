@@ -6,7 +6,7 @@ import {
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { SagaStepStatus } from '../contracts/saga-message';
+import { SagaExecutionStatus } from '../contracts/saga-message';
 
 @Entity('saga_execution')
 @Index('IDX_saga_execution_os_id', ['osId'])
@@ -23,8 +23,12 @@ export class SagaExecutionEntity {
   @Column({ name: 'requested_by', type: 'uuid', nullable: true })
   requestedBy: string | null;
 
-  @Column({ type: 'varchar', length: 32, default: SagaStepStatus.Pendente })
-  status: SagaStepStatus;
+  @Column({
+    type: 'varchar',
+    length: 32,
+    default: SagaExecutionStatus.Pendente,
+  })
+  status: SagaExecutionStatus;
 
   @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
   context: Record<string, unknown>;

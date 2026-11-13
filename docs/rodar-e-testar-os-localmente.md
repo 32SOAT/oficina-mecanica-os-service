@@ -196,7 +196,7 @@ aguardar_saga() {
         jq '.data | {sagaId, status, steps}' <<<"$resposta"
         return 0
         ;;
-      FALHA)
+      FALHA|COMPENSADA|FALHA_COMPENSACAO)
         jq '.data | {sagaId, status, steps}' <<<"$resposta" >&2
         return 1
         ;;
@@ -281,7 +281,7 @@ Sem credenciais de teste, pare no estado `FINALIZADA` com pagamento `PENDENTE`; 
 
 - `202` seguido de `PENDENTE`: confira se Billing e Execução estão rodando com `SQS_WORKER_ENABLED=true`, se a OS está com relay e consumidor de resultados ativos e se os três `.env` apontam às URLs do Floci.
 - `409 Conflict`: já existe uma Saga ativa para a OS. Aguarde a consulta de Saga terminar antes de tentar outra ação.
-- Saga `FALHA`: consulte seus `steps` e o estado do serviço dono. Use o [runbook da Saga SQS](./operacao-saga-sqs.md) para reconciliação; não edite as tabelas manualmente.
+- Saga `FALHA`, `COMPENSADA` ou `FALHA_COMPENSACAO`: consulte seus `steps` e o estado do serviço dono. Em `COMPENSADA`, confira se a etapa da Execução voltou a `ABERTA`; em `FALHA_COMPENSACAO`, siga a [operação da Saga SQS](./operacao-saga-sqs.md) para reconciliação. Não edite as tabelas manualmente.
 - Health do serviço indisponível ou filas ausentes: veja `docker compose ps` e `docker compose logs floci` no repositório da OS.
 
 Para parar as aplicações, use `Ctrl+C` nos terminais. Para parar os recursos locais, execute `docker compose down` em cada repositório onde iniciou Compose. O diagrama do fluxo está em [fluxo-da-ordem.md](../fluxo-da-ordem.md).

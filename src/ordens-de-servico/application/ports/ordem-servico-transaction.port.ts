@@ -7,6 +7,7 @@ import {
   SagaCommandMessage,
   SagaResultMessage,
   SagaStepStatus,
+  SagaExecutionStatus,
 } from '../../../saga/contracts/saga-message';
 
 export type SagaCommandDestination = 'BILLING' | 'EXECUCAO';
@@ -72,7 +73,7 @@ export type SagaStatusQuery = {
   sagaId: string;
   osId: string;
   action: string;
-  status: SagaStepStatus;
+  status: SagaExecutionStatus;
   createdAt: Date;
   updatedAt: Date;
   steps: SagaStepQuery[];

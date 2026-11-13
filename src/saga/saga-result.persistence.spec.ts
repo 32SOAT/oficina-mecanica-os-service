@@ -184,6 +184,230 @@ describe('Saga result transaction', () => {
     expect(execution.status).toBe('FALHA');
   });
 
+  it('queues diagnosis compensation when Billing quote generation fails after execution completion', async () => {
+    os.status = StatusOrdemServico.EmDiagnostico;
+    execution.action = 'GERAR_ORCAMENTO';
+    command.type = SagaCommandType.BillingQuoteGenerate;
+    command.payload = { valorTotal: 125 };
+    step.commandType = command.type;
+    step.destination = 'BILLING';
+    step.sequence = 2;
+    manager.findOne.mockImplementation((entity: unknown, options?: unknown) => {
+      const where = (options as { where?: Record<string, unknown> } | undefined)
+        ?.where;
+      if (entity === SagaStepEntity && where?.sequence)
+        return Promise.resolve(null);
+      if (entity === SagaStepEntity) return Promise.resolve(step);
+      if (entity === SagaExecutionEntity) return Promise.resolve(execution);
+      if (entity === SagaOutboxEntity)
+        return Promise.resolve({
+          commandId: ids.commandId,
+          destination: 'BILLING',
+          body: command,
+        });
+      if (entity === OrdemServicoTypeormEntity) return Promise.resolve(os);
+      return Promise.resolve(null);
+    });
+
+    await transaction.processSagaResult(
+      makeResult({
+        outcome: 'FALHA',
+        payload: { code: 'QUOTE_ERROR', message: 'failed', retryable: false },
+      }),
+    );
+
+    expect(os.status).toBe(StatusOrdemServico.EmDiagnostico);
+    expect(step.status).toBe('FALHA');
+    expect(execution.status).toBe('COMPENSANDO');
+    expect(manager.save).toHaveBeenCalledWith(
+      SagaStepEntity,
+      expect.objectContaining({
+        sequence: 3,
+        commandType: SagaCommandType.ExecutionReopen,
+      }),
+    );
+    expect(manager.save).toHaveBeenCalledWith(
+      SagaOutboxEntity,
+      expect.objectContaining({
+        body: expect.objectContaining({
+          type: SagaCommandType.ExecutionReopen,
+          payload: { etapa: 'DIAGNOSTICO' },
+        }),
+      }),
+    );
+  });
+
+  it('queues repair compensation when Billing payment opening fails', async () => {
+    os.status = StatusOrdemServico.Finalizada;
+    execution.action = 'FINALIZAR';
+    command.type = SagaCommandType.BillingPaymentOpen;
+    command.payload = { valorTotal: 125 };
+    step.commandType = command.type;
+    step.destination = 'BILLING';
+    step.sequence = 2;
+    manager.findOne.mockImplementation((entity: unknown, options?: unknown) => {
+      const where = (options as { where?: Record<string, unknown> } | undefined)
+        ?.where;
+      if (entity === SagaStepEntity && where?.sequence)
+        return Promise.resolve(null);
+      if (entity === SagaStepEntity) return Promise.resolve(step);
+      if (entity === SagaExecutionEntity) return Promise.resolve(execution);
+      if (entity === SagaOutboxEntity)
+        return Promise.resolve({
+          commandId: ids.commandId,
+          destination: 'BILLING',
+          body: command,
+        });
+      if (entity === OrdemServicoTypeormEntity) return Promise.resolve(os);
+      return Promise.resolve(null);
+    });
+
+    await transaction.processSagaResult(
+      makeResult({
+        outcome: 'FALHA',
+        payload: { code: 'PAYMENT_ERROR', message: 'failed', retryable: false },
+      }),
+    );
+
+    expect(execution.status).toBe('COMPENSANDO');
+    expect(os.status).toBe(StatusOrdemServico.Finalizada);
+    expect(manager.save).toHaveBeenCalledWith(
+      SagaOutboxEntity,
+      expect.objectContaining({
+        body: expect.objectContaining({
+          type: SagaCommandType.ExecutionReopen,
+          payload: { etapa: 'REPARO' },
+        }),
+      }),
+    );
+  });
+
+  it('accepts compensation result only when the immediately previous step failed', async () => {
+    execution.action = 'GERAR_ORCAMENTO';
+    execution.status = 'COMPENSANDO';
+    command.type = SagaCommandType.ExecutionReopen;
+    command.payload = { etapa: 'DIAGNOSTICO' };
+    step.commandType = command.type;
+    step.sequence = 3;
+    manager.findOne.mockImplementation((entity: unknown, options?: unknown) => {
+      const where = (options as { where?: Record<string, unknown> } | undefined)
+        ?.where;
+      if (entity === SagaStepEntity && where?.sequence)
+        return Promise.resolve({ sequence: 2, status: 'FALHA' });
+      if (entity === SagaStepEntity) return Promise.resolve(step);
+      if (entity === SagaExecutionEntity) return Promise.resolve(execution);
+      if (entity === SagaOutboxEntity)
+        return Promise.resolve({
+          commandId: ids.commandId,
+          destination: 'EXECUCAO',
+          body: command,
+        });
+      if (entity === OrdemServicoTypeormEntity) return Promise.resolve(os);
+      return Promise.resolve(null);
+    });
+
+    await transaction.processSagaResult(makeResult());
+    expect(execution.status).toBe('COMPENSADA');
+  });
+
+  it('restores EM_EXECUCAO after repair compensation succeeds', async () => {
+    os.status = StatusOrdemServico.Finalizada;
+    execution.action = 'FINALIZAR';
+    execution.status = 'COMPENSANDO';
+    command.type = SagaCommandType.ExecutionReopen;
+    command.payload = { etapa: 'REPARO' };
+    step.commandType = command.type;
+    step.sequence = 3;
+    manager.findOne.mockImplementation((entity: unknown, options?: unknown) => {
+      const where = (options as { where?: Record<string, unknown> } | undefined)
+        ?.where;
+      if (entity === SagaStepEntity && where?.sequence)
+        return Promise.resolve(null);
+      if (entity === SagaStepEntity) return Promise.resolve(step);
+      if (entity === SagaExecutionEntity) return Promise.resolve(execution);
+      if (entity === SagaOutboxEntity)
+        return Promise.resolve({
+          commandId: ids.commandId,
+          destination: 'EXECUCAO',
+          body: command,
+        });
+      if (entity === OrdemServicoTypeormEntity) return Promise.resolve(os);
+      return Promise.resolve(null);
+    });
+
+    const processed = await transaction.processSagaResult(makeResult());
+
+    expect(execution.status).toBe('COMPENSADA');
+    expect(os.status).toBe(StatusOrdemServico.EmExecucao);
+    expect(processed.statusChanges).toEqual([
+      expect.objectContaining({
+        statusAnterior: StatusOrdemServico.Finalizada,
+        statusNovo: StatusOrdemServico.EmExecucao,
+      }),
+    ]);
+  });
+
+  it('marks a failed compensation for manual recovery and leaves the OS unchanged', async () => {
+    os.status = StatusOrdemServico.Finalizada;
+    execution.action = 'FINALIZAR';
+    execution.status = 'COMPENSANDO';
+    command.type = SagaCommandType.ExecutionReopen;
+    command.payload = { etapa: 'REPARO' };
+    step.commandType = command.type;
+    step.sequence = 3;
+    manager.findOne.mockImplementation((entity: unknown, options?: unknown) => {
+      const where = (options as { where?: Record<string, unknown> } | undefined)
+        ?.where;
+      if (entity === SagaStepEntity && where?.sequence)
+        return Promise.resolve(null);
+      if (entity === SagaStepEntity) return Promise.resolve(step);
+      if (entity === SagaExecutionEntity) return Promise.resolve(execution);
+      if (entity === SagaOutboxEntity)
+        return Promise.resolve({
+          commandId: ids.commandId,
+          destination: 'EXECUCAO',
+          body: command,
+        });
+      if (entity === OrdemServicoTypeormEntity) return Promise.resolve(os);
+      return Promise.resolve(null);
+    });
+
+    await transaction.processSagaResult(
+      makeResult({
+        outcome: 'FALHA',
+        payload: { code: 'REOPEN_ERROR', message: 'failed', retryable: false },
+      }),
+    );
+
+    expect(execution.status).toBe('FALHA_COMPENSACAO');
+    expect(os.status).toBe(StatusOrdemServico.Finalizada);
+  });
+
+  it.each(['COMPENSANDO', 'FALHA_COMPENSACAO'] as const)(
+    'blocks another Saga while the current Saga is %s',
+    async (status) => {
+      execution.status = status;
+      manager.findOne.mockImplementation(
+        (entity: unknown, options?: unknown) => {
+          if (entity === OrdemServicoTypeormEntity) return Promise.resolve(os);
+          if (entity === SagaExecutionEntity) {
+            const query = options as { where: { status: { value: string[] } } };
+            return Promise.resolve(
+              query.where.status.value.includes(status) ? execution : null,
+            );
+          }
+          return Promise.resolve(null);
+        },
+      );
+
+      await expect(
+        transaction.runInTransaction((tx) =>
+          tx.lockOsAndEnsureNoActiveSaga(ids.osId),
+        ),
+      ).rejects.toThrow('Saga pendente');
+    },
+  );
+
   it('appends quote generation only after diagnosis completion succeeds', async () => {
     os.status = StatusOrdemServico.EmDiagnostico;
     execution.action = 'GERAR_ORCAMENTO';

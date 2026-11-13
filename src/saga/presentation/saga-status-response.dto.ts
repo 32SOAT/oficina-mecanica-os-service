@@ -3,7 +3,7 @@ import {
   SagaStatusQuery,
   SagaStepQuery,
 } from '../../ordens-de-servico/application/ports/ordem-servico-transaction.port';
-import { SagaStepStatus } from '../contracts/saga-message';
+import { SagaExecutionStatus, SagaStepStatus } from '../contracts/saga-message';
 
 export class SagaAcceptedResponseDto {
   @ApiProperty({ format: 'uuid' })
@@ -68,8 +68,8 @@ export class SagaStatusResponseDto {
   @ApiProperty()
   action: string;
 
-  @ApiProperty({ enum: SagaStepStatus })
-  status: SagaStepStatus;
+  @ApiProperty({ enum: SagaExecutionStatus })
+  status: SagaExecutionStatus;
 
   @ApiProperty()
   createdAt: Date;

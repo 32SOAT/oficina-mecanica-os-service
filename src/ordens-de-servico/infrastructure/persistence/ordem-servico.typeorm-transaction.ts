@@ -58,6 +58,7 @@ import { SagaStepEntity } from '../../../saga/persistence/saga-step.entity';
 import {
   SagaCommandMessage,
   SagaCommandType,
+  SagaExecutionStatus,
   SagaResultMessage,
 } from '../../../saga/contracts/saga-message';
 import { HistoricoStatusOsEntity } from '../typeorm/entity/historico-status-os.entity';
@@ -182,7 +183,15 @@ export class OrdemServicoTypeormTransaction
     if (!os) throw new NotFoundError('Ordem de serviço não encontrada.');
 
     const activeExecution = await manager.findOne(SagaExecutionEntity, {
-      where: { osId, status: In(['PENDENTE', 'EM_PROCESSAMENTO']) },
+      where: {
+        osId,
+        status: In([
+          'PENDENTE',
+          'EM_PROCESSAMENTO',
+          'COMPENSANDO',
+          'FALHA_COMPENSACAO',
+        ]),
+      },
     });
     if (activeExecution) {
       throw new ConflictError(
@@ -313,7 +322,11 @@ export class OrdemServicoTypeormTransaction
           status: Not('CONCLUIDA'),
         },
       });
-      if (incompletePreviousStep) {
+      const expectedFailedPredecessor =
+        command.type === SagaCommandType.ExecutionReopen &&
+        incompletePreviousStep?.sequence === step.sequence - 1 &&
+        incompletePreviousStep.status === 'FALHA';
+      if (incompletePreviousStep && !expectedFailedPredecessor) {
         throw new ConflictError(
           'Resultado fora de sequência: há uma etapa anterior não concluída.',
         );
@@ -333,9 +346,45 @@ export class OrdemServicoTypeormTransaction
       step.retryable = result.payload.retryable;
       step.lastErrorCode = result.payload.code;
       step.lastErrorMessage = result.payload.message;
-      execution.status = 'FALHA';
+      const compensationStage =
+        command.type === SagaCommandType.BillingQuoteGenerate &&
+        execution.action === 'GERAR_ORCAMENTO' &&
+        step.sequence === 2
+          ? 'DIAGNOSTICO'
+          : command.type === SagaCommandType.BillingPaymentOpen &&
+              execution.action === 'FINALIZAR' &&
+              step.sequence === 2
+            ? 'REPARO'
+            : null;
+      execution.status =
+        command.type === SagaCommandType.ExecutionReopen
+          ? SagaExecutionStatus.FalhaCompensacao
+          : compensationStage
+            ? SagaExecutionStatus.Compensando
+            : SagaExecutionStatus.Falha;
       await manager.save(SagaStepEntity, step);
       await manager.save(SagaExecutionEntity, execution);
+      if (compensationStage) {
+        await this.appendSagaCommand({
+          sagaId: execution.id,
+          step: {
+            sequence: step.sequence + 1,
+            destination: 'EXECUCAO',
+            command: {
+              messageId: randomUUID(),
+              commandId: randomUUID(),
+              sagaId: result.sagaId,
+              osId: result.osId,
+              occurredAt: new Date().toISOString(),
+              correlationId: result.correlationId,
+              causationId: result.messageId,
+              schemaVersion: 1,
+              type: SagaCommandType.ExecutionReopen,
+              payload: { etapa: compensationStage },
+            },
+          },
+        });
+      }
       return processing;
     }
 
@@ -348,6 +397,33 @@ export class OrdemServicoTypeormTransaction
     let hasNextStep = false;
 
     switch (command.type) {
+      case SagaCommandType.ExecutionReopen:
+        if (execution.status !== SagaExecutionStatus.Compensando) {
+          throw new ConflictError('Saga não está aguardando compensação.');
+        }
+        if (command.payload.etapa === 'REPARO') {
+          const os = await this.loadOs(osId, {});
+          if (os.status !== StatusOrdemServico.Finalizada) {
+            throw new ConflictError(
+              'Status da OS incompatível com compensação do reparo.',
+            );
+          }
+          (os as OsTypeormHandle).entity.status = StatusOrdemServico.EmExecucao;
+          await this.saveOs(os);
+          await this.saveSagaHistory(
+            osId,
+            StatusOrdemServico.Finalizada,
+            StatusOrdemServico.EmExecucao,
+            usuarioId,
+          );
+          processing.statusChanges.push({
+            osId,
+            statusAnterior: StatusOrdemServico.Finalizada,
+            statusNovo: StatusOrdemServico.EmExecucao,
+            usuarioId,
+          });
+        }
+        break;
       case SagaCommandType.ExecutionOpen:
         if (command.payload.etapa === 'DIAGNOSTICO') {
           processing.statusChanges.push(
@@ -486,7 +562,12 @@ export class OrdemServicoTypeormTransaction
     }
 
     await manager.save(SagaStepEntity, step);
-    execution.status = hasNextStep ? 'PENDENTE' : 'CONCLUIDA';
+    execution.status =
+      command.type === SagaCommandType.ExecutionReopen
+        ? SagaExecutionStatus.Compensada
+        : hasNextStep
+          ? SagaExecutionStatus.Pendente
+          : SagaExecutionStatus.Concluida;
     await manager.save(SagaExecutionEntity, execution);
     return processing;
   }
@@ -591,7 +672,15 @@ export class OrdemServicoTypeormTransaction
         `Sequência de etapa inválida; esperada ${expectedSequence}.`,
       );
     }
-    if (previousStep && previousStep.status !== 'CONCLUIDA') {
+    const compensationAfterFailure =
+      command.type === SagaCommandType.ExecutionReopen &&
+      previousStep?.status === 'FALHA' &&
+      saga.status === SagaExecutionStatus.Compensando;
+    if (
+      previousStep &&
+      previousStep.status !== 'CONCLUIDA' &&
+      !compensationAfterFailure
+    ) {
       throw new ConflictError(
         'Não é possível criar a próxima etapa antes de concluir a anterior.',
       );
