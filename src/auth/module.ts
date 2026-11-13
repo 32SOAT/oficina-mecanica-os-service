@@ -6,15 +6,18 @@ import { ValidateCredentialsUseCase } from './application/use-cases/validate-cre
 import { JwtAuthGuard } from './presentation/guards/jwt-auth.guard';
 import { RolesGuard } from './presentation/guards/roles.guard';
 import { AuthInfraModule } from './infrastructure/infra.module';
+import { ClienteInfraModule } from '../clientes/infrastructure/infra.module';
+import { AuthenticateClienteCpfUseCase } from './application/use-cases/authenticate-cliente-cpf.use-case';
 import { AuthController } from './presentation/controllers/auth.controller';
 
 @Module({
-  imports: [AuthInfraModule],
+  imports: [AuthInfraModule, ClienteInfraModule],
   controllers: [AuthController],
   providers: [
     ValidateCredentialsUseCase,
     IssueAuthTokenUseCase,
     ChangePasswordUseCase,
+    AuthenticateClienteCpfUseCase,
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,

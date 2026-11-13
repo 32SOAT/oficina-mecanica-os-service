@@ -1,7 +1,7 @@
 import { parseJwtPayload } from './jwt-payload';
 
 describe('parseJwtPayload', () => {
-  it('aceita token de cliente da Lambda', () => {
+  it('aceita token de cliente da OS', () => {
     expect(
       parseJwtPayload({
         sub: 'cliente-1',

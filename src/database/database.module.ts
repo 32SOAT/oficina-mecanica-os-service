@@ -11,6 +11,9 @@ import { OrdemServicoTypeormEntity } from '../ordens-de-servico/infrastructure/t
 import { ServicoTypeormEntity } from '../servicos/infrastructure/typeorm/entity/servico.typeorm.entity';
 import { UserTypeormEntity } from '../users/infrastructure/typeorm/entity/user.typeorm.entity';
 import { VeiculoTypeormEntity } from '../veiculos/infrastructure/typeorm/entity/veiculo.typeorm.entity';
+import { SagaExecutionEntity } from '../saga/persistence/saga-execution.entity';
+import { SagaOutboxEntity } from '../saga/persistence/saga-outbox.entity';
+import { SagaStepEntity } from '../saga/persistence/saga-step.entity';
 
 @Module({
   imports: [
@@ -33,6 +36,9 @@ import { VeiculoTypeormEntity } from '../veiculos/infrastructure/typeorm/entity/
             ItemOsServicoEntity,
             ItemOsEstoqueEntity,
             HistoricoStatusOsEntity,
+            SagaExecutionEntity,
+            SagaStepEntity,
+            SagaOutboxEntity,
           ],
         };
       },

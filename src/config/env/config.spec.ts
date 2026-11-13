@@ -161,4 +161,38 @@ describe('config env', () => {
     expect(value.APP_PORT).toBe(3001);
     expect(value.POSTGRES_HOST).toBe('localhost');
   });
+
+  it('requires queue URLs when the OS outbox relay is enabled', () => {
+    const validated = envValidationSchema.validate({
+      NODE_ENV: 'development',
+      POSTGRES_USER: 'postgres',
+      POSTGRES_PASSWORD: 'postgres',
+      POSTGRES_DB: 'oficina',
+      POSTGRES_SYNC: 0,
+      JWT_SECRET: 'test-jwt-secret-for-validation',
+      RESEND_API_KEY: 're_test_key',
+      NOTIFICACAO_EMAIL_MECANICOS: 'mecanicos@example.com',
+      NOTIFICACAO_EMAIL_ADMIN: 'admin@example.com',
+      SQS_OUTBOX_RELAY_ENABLED: true,
+    });
+
+    expect(validated.error?.message).toContain('SQS_BILLING_COMMAND_QUEUE_URL');
+  });
+
+  it('requires the results queue when the OS results consumer is enabled', () => {
+    const validated = envValidationSchema.validate({
+      NODE_ENV: 'development',
+      POSTGRES_USER: 'postgres',
+      POSTGRES_PASSWORD: 'postgres',
+      POSTGRES_DB: 'oficina',
+      POSTGRES_SYNC: 0,
+      JWT_SECRET: 'test-jwt-secret-for-validation',
+      RESEND_API_KEY: 're_test_key',
+      NOTIFICACAO_EMAIL_MECANICOS: 'mecanicos@example.com',
+      NOTIFICACAO_EMAIL_ADMIN: 'admin@example.com',
+      SQS_RESULTS_CONSUMER_ENABLED: true,
+    });
+
+    expect(validated.error?.message).toContain('SQS_RESULTS_QUEUE_URL');
+  });
 });
