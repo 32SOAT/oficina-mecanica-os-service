@@ -81,4 +81,38 @@ describe('SagaResultProcessor', () => {
     });
     expect(events.emitStatusNotificacao).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['ORCAMENTO_APROVADO', 'emitOrcamentoAprovado'],
+    ['ORCAMENTO_REPROVADO', 'emitOrcamentoReprovado'],
+    ['EXECUCAO_INICIADA', 'emitOsEmExecucao'],
+  ] as const)(
+    'emits %s only after its Saga result commits',
+    async (domainEvent, emitter) => {
+      const events = {
+        emitStatusNotificacao: jest.fn(),
+        emitOrcamentoGerado: jest.fn(),
+        emitOrcamentoAprovado: jest.fn(),
+        emitOrcamentoReprovado: jest.fn(),
+        emitOsEmExecucao: jest.fn(),
+      };
+      const transaction = {
+        processSagaResult: jest.fn().mockResolvedValue({
+          duplicate: false,
+          statusChanges: [],
+          domainEvents: [domainEvent],
+        }),
+      };
+      const processor = new SagaResultProcessor(
+        transaction as never,
+        events as never,
+      );
+
+      await processor.process(result);
+
+      expect(events[emitter]).toHaveBeenCalledTimes(1);
+      expect(events[emitter]).toHaveBeenCalledWith(result.osId);
+      expect(events.emitStatusNotificacao).not.toHaveBeenCalled();
+    },
+  );
 });

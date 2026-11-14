@@ -123,4 +123,46 @@ describe('SagaOutboxRelay', () => {
     expect(sql).toContain('locked_until = NULL');
     expect(parameters).toEqual([command.messageId, 2_000]);
   });
+
+  it('publishes a JSON stored command and reports the published count', async () => {
+    const send = jest.fn().mockResolvedValue(undefined);
+    const { manager, dataSource, relay } = makeRelay(send);
+    manager.query.mockResolvedValueOnce([
+      {
+        message_id: command.messageId,
+        command_id: command.commandId,
+        destination: 'BILLING',
+        body: JSON.stringify(command),
+        attempt_count: 1,
+      },
+    ]);
+    dataSource.query.mockResolvedValue([{ message_id: command.messageId }]);
+
+    await expect(relay.publishPendingBatch()).resolves.toBe(1);
+
+    expect(send).toHaveBeenCalledWith(command, 'BILLING');
+  });
+
+  it('caps retry delay for repeatedly failing SQS sends', async () => {
+    const { manager, dataSource, relay } = makeRelay(
+      jest.fn().mockRejectedValue(new Error('still unavailable')),
+    );
+    manager.query.mockResolvedValueOnce([
+      {
+        message_id: command.messageId,
+        command_id: command.commandId,
+        destination: 'BILLING',
+        body: command,
+        attempt_count: 10,
+      },
+    ]);
+    dataSource.query.mockResolvedValue([{ message_id: command.messageId }]);
+
+    await expect(relay.publishPendingBatch()).resolves.toBe(0);
+
+    expect(dataSource.query).toHaveBeenCalledWith(
+      expect.stringContaining('locked_until = NULL'),
+      [command.messageId, 60_000],
+    );
+  });
 });

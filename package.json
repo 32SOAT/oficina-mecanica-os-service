@@ -99,7 +99,8 @@
       "!src/**/module.ts",
       "!src/common/bootstrap/**",
       "!src/common/core/logger-options.ts",
-      "!src/config/**"
+      "!src/config/**",
+      "!src/database/migrations/**"
     ],
     "coverageDirectory": "coverage",
     "coveragePathIgnorePatterns": [

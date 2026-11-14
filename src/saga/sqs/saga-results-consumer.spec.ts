@@ -39,6 +39,10 @@ describe('SagaResultsConsumer', () => {
   };
 
   beforeEach(() => {
+    config.getOrThrow.mockReset().mockReturnValue({
+      resultsConsumerEnabled: true,
+      resultsQueueUrl: 'http://localhost:4566/000000000000/os-results.fifo',
+    });
     client = { send: jest.fn().mockResolvedValue({}), destroy: jest.fn() };
     processor = { process: jest.fn().mockResolvedValue({ duplicate: false }) };
     consumer = new SagaResultsConsumer(
@@ -69,6 +73,32 @@ describe('SagaResultsConsumer', () => {
 
     expect(processor.process).not.toHaveBeenCalled();
     expect(client.send).not.toHaveBeenCalled();
+  });
+
+  it('leaves malformed JSON and messages without a receipt unacknowledged', async () => {
+    await consumer.processMessage(message('{'));
+    await consumer.processMessage({
+      Body: JSON.stringify(result),
+      MessageId: 'missing-receipt',
+    });
+
+    expect(processor.process).not.toHaveBeenCalled();
+    expect(client.send).not.toHaveBeenCalled();
+  });
+
+  it('does not poll when disabled and rejects an enabled worker without a queue URL', () => {
+    config.getOrThrow.mockReturnValueOnce({
+      resultsConsumerEnabled: false,
+      resultsQueueUrl: '',
+    });
+    consumer.onModuleInit();
+    expect(client.send).not.toHaveBeenCalled();
+
+    config.getOrThrow.mockReturnValueOnce({
+      resultsConsumerEnabled: true,
+      resultsQueueUrl: '',
+    });
+    expect(() => consumer.onModuleInit()).toThrow('SQS_RESULTS_QUEUE_URL');
   });
 
   it('does not acknowledge a result when database processing fails', async () => {
