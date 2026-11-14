@@ -26,6 +26,12 @@ Para configurar o ambiente local e percorrer uma ordem de ponta a ponta, siga [R
 
 Postgres `oficina_os` no próprio repositório, porta **5435** no host. A 5432 continua com o banco do monólito. O schema nasce com `npm run migration:run`. Este serviço não conecta no banco do billing nem no da execução.
 
+No Kubernetes, `kubernetes/base` cria um PostgreSQL exclusivo `oficina-os-postgres` com PVC próprio e política de rede que aceita somente pods da OS. O job `oficina-os-migrations` aplica as migrations antes do rollout da aplicação. As credenciais vêm do Secret `oficina-os-secret`, criado pelo pipeline; não são versionadas.
+
+## Deploy Kubernetes independente
+
+`.github/workflows/deploy.yml` executa lint, cobertura, build, publica imagem imutável no ECR e faz o rollout em `homolog`/`main`. O deploy só inicia com `DEPLOY_ENABLED=true` nas variables do repositório; as demais variables/secrets ficam nos GitHub Environments `homologacao`/`producao`. O workflow requer `AWS_REGION`, `AWS_ACCOUNT_ID`, `EKS_CLUSTER_NAME`, `DEPLOY_ROLE_ARN`, `SERVICE_ROLE_ARN`, `ECR_REPOSITORY_URL` e as URLs das três filas como variables. Os secrets são `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SECRET`, `RESEND_API_KEY` e `SAGA_TOKEN`. A role de deploy precisa de ECR push, `eks:DescribeCluster` e acesso Kubernetes ao namespace `oficina-mecanica`; a role do ServiceAccount `oficina-os` precisa somente das permissões SQS da OS. O ECR, as roles, o cluster, o namespace e as filas precisam existir antes da ativação. A URL do novo NLB da OS ainda precisa ser integrada ao contrato de API Gateway do repositório de plataforma.
+
 ## Mensageria da Saga
 
 O provisionamento cria três filas FIFO (`billing-commands`, `execution-commands` e `os-results`), cada uma com DLQ FIFO, redrive após cinco recebimentos e criptografia SSE-SQS. A OS grava execução, etapa e outbox na mesma transação. O relay publica comandos com `osId` como grupo FIFO e `commandId` como deduplicação; além da ordem FIFO, a OS valida no banco a sequência de cada etapa e só cria a próxima após sucesso da anterior. O consumidor de resultados valida correlação, persiste a resposta e só então confirma a mensagem. O status canônico e o histórico avançam na mesma transação da OS somente após o resultado remoto de sucesso. Há consistência eventual: até o resultado ser processado, o status de negócio permanece no estado anterior.
