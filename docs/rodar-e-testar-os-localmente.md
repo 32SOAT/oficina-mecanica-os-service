@@ -298,4 +298,4 @@ bash oficina-mecanica-os-service/scripts/run-bdd-ci.sh
 
 O script sobe bancos isolados e Floci, cria as filas, instala e compila os serviços, aplica migrations da OS e executa todos os cenários Cucumber. O mock HTTP local responde como provedor de pagamento para os tokens de teste `bdd-approved` e `bdd-rejected`; nenhuma credencial real do Mercado Pago é usada. Os cenários também causam falhas intencionais no Billing e verificam a compensação da Saga na OS e na Execução. Os containers e volumes de teste são removidos ao terminar. As portas 3001, 3002, 3003, 3099, 4566, 5433, 5435 e 8000 precisam estar livres.
 
-O mesmo script roda em `.github/workflows/bdd.yml`. Para testar branches dos serviços irmãos antes do merge, configure as variables `BILLING_BDD_REF` e `EXECUTION_BDD_REF` no repositório da OS; sem elas, o CI usa `main`.
+O mesmo script roda em `.github/workflows/bdd.yml`. No PR, o CI usa os branches de Saga dos serviços irmãos; após o merge, pushes em `homolog`/`main` usam `main`. As variables `BILLING_BDD_REF` e `EXECUTION_BDD_REF` permitem escolher refs específicas.

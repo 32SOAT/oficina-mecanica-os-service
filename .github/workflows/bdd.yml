@@ -16,12 +16,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: 32SOAT/oficina-mecanica-billing-service
-          ref: ${{ vars.BILLING_BDD_REF || 'main' }}
+          ref: ${{ vars.BILLING_BDD_REF || (github.event_name == 'pull_request' && 'feat/billing-saga-sqs' || 'main') }}
           path: oficina-mecanica-billing-service
       - uses: actions/checkout@v4
         with:
           repository: 32SOAT/oficina-mecanica-execucao-service
-          ref: ${{ vars.EXECUTION_BDD_REF || 'main' }}
+          ref: ${{ vars.EXECUTION_BDD_REF || (github.event_name == 'pull_request' && 'feat/execution-saga-sqs' || 'main') }}
           path: oficina-mecanica-execucao-service
       - uses: actions/setup-node@v4
         with:
