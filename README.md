@@ -30,6 +30,8 @@ No Kubernetes, `kubernetes/base` cria um PostgreSQL exclusivo `oficina-os-postgr
 
 ## Deploy Kubernetes independente
 
+Os recursos AWS próprios e a ordem de configuração estão em [infra/aws/README.md](infra/aws/README.md). Cada ambiente tem state Terraform e ECR separados; execute o apply apenas após revisão da infraestrutura.
+
 `.github/workflows/deploy.yml` executa lint, cobertura, build, publica imagem imutável no ECR e faz o rollout em `homolog`/`main`. O deploy só inicia com `DEPLOY_ENABLED=true` nas variables do repositório; as demais variables/secrets ficam nos GitHub Environments `homologacao`/`producao`. O workflow requer `AWS_REGION`, `AWS_ACCOUNT_ID`, `EKS_CLUSTER_NAME`, `DEPLOY_ROLE_ARN`, `SERVICE_ROLE_ARN`, `ECR_REPOSITORY_URL` e as URLs das três filas como variables. Os secrets são `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SECRET`, `RESEND_API_KEY` e `SAGA_TOKEN`. A role de deploy precisa de ECR push, `eks:DescribeCluster` e acesso Kubernetes ao namespace `oficina-mecanica`; a role do ServiceAccount `oficina-os` precisa somente das permissões SQS da OS. O ECR, as roles, o cluster, o namespace e as filas precisam existir antes da ativação. A URL do novo NLB da OS ainda precisa ser integrada ao contrato de API Gateway do repositório de plataforma.
 
 ## Mensageria da Saga
