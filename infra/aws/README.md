@@ -10,3 +10,5 @@ terraform plan -var='aws_region=<region>' -var='environment=<homologacao-or-prod
 ```
 
 After review and an authorized apply, copy only `ecr_repository_url`, `deployer_role_arn` to the corresponding GitHub Environment variables `ECR_REPOSITORY_URL`, `DEPLOY_ROLE_ARN`. Set `AWS_REGION`, `AWS_ACCOUNT_ID`, `EKS_CLUSTER_NAME` and queue URLs there too. The namespace `oficina-mecanica` must exist. Enable repository variable `DEPLOY_ENABLED=true` only after the environment is configured. Do not run this root from the app deployment workflow; it has a separate state and approval lifecycle.
+
+The deploy role can publish only `/oficina/<environment>/services/os-nlb-hostname` in SSM. The deployment script writes it after the OS rollout and direct NLB health check. The platform Terraform root reads this parameter for the API Gateway proxy; it does not create or own the parameter.

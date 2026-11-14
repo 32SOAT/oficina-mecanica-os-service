@@ -109,6 +109,8 @@ Na OS, confirme que as ações remotas documentam `202 Accepted` com `data.sagaI
 
 No Billing, as antigas rotas HTTP de comando aparecem como deprecated; `GET /api/v1/pagamentos/{osId}` continua documentado para a consulta síncrona usada na entrega. Na Execução, as rotas HTTP internas aparecem como deprecated. As mensagens SQS não são endpoints HTTP, então seus contratos devem ser consultados no [fluxo da ordem](../fluxo-da-ordem.md) e no [runbook da Saga](./operacao-saga-sqs.md).
 
+O Billing também documenta `GET /api/v1/pagamentos/{osId}/checkout` (HTML) e `POST /api/v1/pagamentos/{osId}/cobrar` (token do cartão, meio de pagamento e e-mail). No API Gateway da plataforma, somente essas duas rotas públicas de pagamento vão para o NLB do Billing; as rotas da OS passam pelo proxy geral.
+
 ## Criar dados e autenticar
 
 Em um quarto terminal, a partir do repositório da OS, execute o seed uma vez:
@@ -285,3 +287,15 @@ Sem credenciais de teste, pare no estado `FINALIZADA` com pagamento `PENDENTE`; 
 - Health do serviço indisponível ou filas ausentes: veja `docker compose ps` e `docker compose logs floci` no repositório da OS.
 
 Para parar as aplicações, use `Ctrl+C` nos terminais. Para parar os recursos locais, execute `docker compose down` em cada repositório onde iniciou Compose. O diagrama do fluxo está em [fluxo-da-ordem.md](../fluxo-da-ordem.md).
+
+## Executar o BDD completo com Floci
+
+A partir do diretório que contém os três repositórios, execute:
+
+```bash
+bash oficina-mecanica-os-service/scripts/run-bdd-ci.sh
+```
+
+O script sobe bancos isolados e Floci, cria as filas, instala e compila os serviços, aplica migrations da OS e executa todos os cenários Cucumber. O mock HTTP local responde como provedor de pagamento para os tokens de teste `bdd-approved` e `bdd-rejected`; nenhuma credencial real do Mercado Pago é usada. Os cenários também causam falhas intencionais no Billing e verificam a compensação da Saga na OS e na Execução. Os containers e volumes de teste são removidos ao terminar. As portas 3001, 3002, 3003, 3099, 4566, 5433, 5435 e 8000 precisam estar livres.
+
+O mesmo script roda em `.github/workflows/bdd.yml`. Para testar branches dos serviços irmãos antes do merge, configure as variables `BILLING_BDD_REF` e `EXECUTION_BDD_REF` no repositório da OS; sem elas, o CI usa `main`.

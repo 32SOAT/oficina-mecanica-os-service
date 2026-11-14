@@ -34,3 +34,12 @@ kubectl -n "$namespace" apply -f "$work_dir/deployment.yaml"
 kubectl -n "$namespace" rollout status "deployment/oficina-os" --timeout=5m
 kubectl -n "$namespace" run "oficina-os-smoke-${GITHUB_RUN_ID:-local}" --image=curlimages/curl:8.11.1 --restart=Never --rm -i --quiet -- \
   curl --fail --silent --show-error "http://oficina-os/api/v1/health" >/dev/null
+hostname=""
+for _ in $(seq 1 30); do
+  hostname="$(kubectl -n "$namespace" get service "$service_name" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+  [[ -n "$hostname" ]] && break
+  sleep 10
+done
+[[ "$hostname" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]] || { echo 'OS NLB hostname is unavailable or invalid' >&2; exit 1; }
+curl --fail --silent --show-error --retry 12 --retry-delay 5 "http://$hostname/api/v1/health" >/dev/null
+aws ssm put-parameter --name "/oficina/$DEPLOY_ENV/services/os-nlb-hostname" --type String --value "$hostname" --overwrite >/dev/null

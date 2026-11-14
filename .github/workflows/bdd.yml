@@ -1,0 +1,29 @@
+name: Distributed BDD
+on:
+  pull_request:
+  push:
+    branches: [homolog, main]
+permissions:
+  contents: read
+jobs:
+  saga-bdd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: oficina-mecanica-os-service
+      - uses: actions/checkout@v4
+        with:
+          repository: 32SOAT/oficina-mecanica-billing-service
+          ref: ${{ vars.BILLING_BDD_REF || 'main' }}
+          path: oficina-mecanica-billing-service
+      - uses: actions/checkout@v4
+        with:
+          repository: 32SOAT/oficina-mecanica-execucao-service
+          ref: ${{ vars.EXECUTION_BDD_REF || 'main' }}
+          path: oficina-mecanica-execucao-service
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: bash oficina-mecanica-os-service/scripts/run-bdd-ci.sh
