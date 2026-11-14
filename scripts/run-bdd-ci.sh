@@ -11,17 +11,22 @@ done
 run_id="${GITHUB_RUN_ID:-local-$$}"
 logs="$(mktemp -d)"
 cleanup() {
+  local status=$?
   kill "${mock_pid:-}" "${os_pid:-}" "${billing_pid:-}" "${execution_pid:-}" 2>/dev/null || true
+  wait "${mock_pid:-}" "${os_pid:-}" "${billing_pid:-}" "${execution_pid:-}" 2>/dev/null || true
   for pair in "$os:bdd-os-$run_id" "$billing:bdd-billing-$run_id" "$execution:bdd-execution-$run_id"; do
     docker compose -f "${pair%%:*}/docker-compose.yml" -p "${pair#*:}" down -v >/dev/null 2>&1 || true
   done
-  if [[ "${BDD_FAILED:-0}" == 1 ]]; then
-    for file in "$logs"/*.log; do echo "=== ${file##*/} ===" >&2; tail -35 "$file" >&2; done
+  if ((status != 0)); then
+    for file in "$logs"/*.log; do echo "=== ${file##*/} ===" >&2; tail -100 "$file" >&2; done
   fi
-  rm -rf "$logs"
+  if ((status != 0)) && [[ "${BDD_KEEP_LOGS:-0}" == 1 ]]; then
+    echo "BDD logs retained at $logs" >&2
+  else
+    rm -rf "$logs"
+  fi
 }
 trap cleanup EXIT
-trap 'BDD_FAILED=1' ERR
 export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
 
 docker compose -f "$os/docker-compose.yml" -p "bdd-os-$run_id" up -d db floci
@@ -33,7 +38,7 @@ for _ in $(seq 1 90); do
 done
 docker compose -f "$os/docker-compose.yml" -p "bdd-os-$run_id" exec -T floci aws --endpoint-url http://localhost:4566 sqs get-queue-url --queue-name oficina-os-results.fifo >/dev/null
 for directory in "$os" "$billing" "$execution"; do
-  (cd "$directory" && npm ci && npm run build) >"$logs/$(basename "$directory")-install.log" 2>&1
+  (cd "$directory" && if [[ "${BDD_SKIP_INSTALL:-0}" != 1 ]]; then npm ci; fi && npm run build) >"$logs/$(basename "$directory")-install.log" 2>&1
 done
 (cd "$os" && POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5435 POSTGRES_USER=oficina POSTGRES_PASSWORD=oficina123 POSTGRES_DB=oficina_os npm run migration:run) >"$logs/migration.log" 2>&1
 
@@ -50,5 +55,9 @@ for address in 127.0.0.1:3099/health 127.0.0.1:3001/api/v1/health 127.0.0.1:3002
   done
   [[ "$ready" == 1 ]] || { echo "Service unavailable: $address" >&2; exit 1; }
 done
-(cd "$os" && JWT_SECRET=bdd-local-secret npm run test:bdd) >"$logs/bdd.log" 2>&1
+if [[ -n "${BDD_CUCUMBER_NAME:-}" ]]; then
+  (cd "$os" && JWT_SECRET=bdd-local-secret npm run test:bdd -- --name "$BDD_CUCUMBER_NAME") >"$logs/bdd.log" 2>&1
+else
+  (cd "$os" && JWT_SECRET=bdd-local-secret npm run test:bdd) >"$logs/bdd.log" 2>&1
+fi
 cat "$logs/bdd.log"

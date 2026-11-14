@@ -95,9 +95,11 @@ export class SagaResultsConsumer implements OnModuleInit, OnModuleDestroy {
         for (const message of response.Messages ?? []) {
           try {
             await this.processMessage(message);
-          } catch {
+          } catch (error) {
+            const reason =
+              error instanceof Error ? error.message : String(error);
             this.logger.warn(
-              `Falha ao processar resultado SQS; mensagem será repetida. messageId=${message.MessageId ?? 'desconhecido'}`,
+              `Falha ao processar resultado SQS; mensagem será repetida. messageId=${message.MessageId ?? 'desconhecido'} reason=${reason}`,
             );
           }
         }

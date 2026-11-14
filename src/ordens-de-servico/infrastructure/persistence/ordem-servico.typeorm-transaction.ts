@@ -392,6 +392,7 @@ export class OrdemServicoTypeormTransaction
     step.retryable = false;
     step.lastErrorCode = null;
     step.lastErrorMessage = null;
+    await manager.save(SagaStepEntity, step);
     const osId = result.osId;
     const usuarioId = execution.requestedBy;
     let hasNextStep = false;
@@ -561,7 +562,6 @@ export class OrdemServicoTypeormTransaction
         break;
     }
 
-    await manager.save(SagaStepEntity, step);
     execution.status =
       command.type === SagaCommandType.ExecutionReopen
         ? SagaExecutionStatus.Compensada

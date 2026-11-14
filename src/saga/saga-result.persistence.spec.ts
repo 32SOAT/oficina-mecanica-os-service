@@ -184,6 +184,54 @@ describe('Saga result transaction', () => {
     expect(execution.status).toBe('FALHA');
   });
 
+  it('persists execution completion before appending the Billing quote command', async () => {
+    os.status = StatusOrdemServico.EmDiagnostico;
+    execution.action = 'GERAR_ORCAMENTO';
+    execution.context = { valorTotal: 125 };
+    command.type = SagaCommandType.ExecutionComplete;
+    command.payload = { etapa: 'DIAGNOSTICO' };
+    step.commandType = command.type;
+    let persistedStatus = 'PENDENTE';
+    manager.save.mockImplementation(
+      (entity: unknown, data: { commandId?: string; status?: string }) => {
+        if (entity === SagaStepEntity && data.commandId === ids.commandId) {
+          persistedStatus = data.status ?? persistedStatus;
+        }
+        return Promise.resolve(data);
+      },
+    );
+    manager.findOne.mockImplementation((entity: unknown, options?: unknown) => {
+      const where = (options as { where?: Record<string, unknown> } | undefined)
+        ?.where;
+      if (entity === SagaStepEntity && where?.sagaId) {
+        return Promise.resolve({ sequence: 1, status: persistedStatus });
+      }
+      if (entity === SagaStepEntity) return Promise.resolve(step);
+      if (entity === SagaExecutionEntity) return Promise.resolve(execution);
+      if (entity === SagaOutboxEntity) {
+        return Promise.resolve({
+          commandId: ids.commandId,
+          destination: 'EXECUCAO',
+          body: command,
+        });
+      }
+      if (entity === OrdemServicoTypeormEntity) return Promise.resolve(os);
+      return Promise.resolve(null);
+    });
+
+    await transaction.processSagaResult(makeResult());
+
+    expect(persistedStatus).toBe('CONCLUIDA');
+    expect(manager.save).toHaveBeenCalledWith(
+      SagaOutboxEntity,
+      expect.objectContaining({
+        body: expect.objectContaining({
+          type: SagaCommandType.BillingQuoteGenerate,
+        }),
+      }),
+    );
+  });
+
   it('queues diagnosis compensation when Billing quote generation fails after execution completion', async () => {
     os.status = StatusOrdemServico.EmDiagnostico;
     execution.action = 'GERAR_ORCAMENTO';
