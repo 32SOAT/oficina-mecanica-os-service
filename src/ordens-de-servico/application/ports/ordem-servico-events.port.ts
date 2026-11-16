@@ -9,6 +9,12 @@ export abstract class OrdemServicoEventsPort {
     statusNovo: StatusOrdemServico,
     usuarioId: string | null,
   ): void;
+  abstract emitStatusNotificacao(
+    osId: string,
+    statusAnterior: StatusOrdemServico | null,
+    statusNovo: StatusOrdemServico,
+    usuarioId: string | null,
+  ): void;
   abstract emitOsCriada(osId: string): void;
   abstract emitOrcamentoGerado(osId: string): void;
   abstract emitOrcamentoAprovado(osId: string): void;

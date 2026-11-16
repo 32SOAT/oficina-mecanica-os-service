@@ -54,7 +54,7 @@ Dono do dinheiro combinado e do pagamento local.
 
 A saga é orquestrada pela OS. O fluxo é uma sequência e o status mora na OS. Coreografia espalharia a decisão de avançar ou compensar entre os três serviços.
 
-Compensação desta etapa: pagamento recusado mantém a ordem em `FINALIZADA` e bloqueia a entrega. Reprovar o orçamento estorna a reserva de estoque e segue a máquina de status já existente (`REPROVADA`, depois `CANCELADA`). Estorno no Mercado Pago não faz parte desta decisão.
+Compensação: se o Billing falha após a conclusão do diagnóstico ou reparo, a OS publica `EXECUTION_REOPEN` e aguarda a Execução voltar a `ABERTA`. No reparo, a OS também restaura o status da ordem para `EM_EXECUCAO` após a confirmação. Pagamento recusado mantém a ordem em `FINALIZADA` e bloqueia a entrega. Reprovar o orçamento estorna a reserva de estoque e segue a máquina de status já existente (`REPROVADA`, depois `CANCELADA`). Estorno no Mercado Pago não faz parte desta decisão.
 
 ### Banco em cada aplicação
 
@@ -91,4 +91,4 @@ Nenhum serviço abre conexão com o banco de outro. O que precisa cruzar a front
 
 ## Evolução prevista
 
-Mensageria (SQS), deploy em Kubernetes e a Lambda de CPF passando a chamar a OS por HTTP em vez de ler a tabela de cliente. Essas etapas não alteram o dono de cada dado definido aqui.
+Mensageria (SQS), deploy em Kubernetes e autenticação por CPF na própria OS. Essas etapas não alteram o dono de cada dado definido aqui.

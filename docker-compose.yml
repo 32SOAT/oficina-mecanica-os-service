@@ -1,4 +1,17 @@
 services:
+  floci:
+    image: floci/floci:latest-compat
+    ports:
+      - '4566:4566'
+    environment:
+      FLOCI_DEFAULT_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      FLOCI_SERVICES_CLOUDWATCHMETRICS_ENABLED: 'false'
+      FLOCI_SERVICES_CLOUDWATCHLOGS_ENABLED: 'false'
+    volumes:
+      - ./floci/init/ready.d:/etc/floci/init/ready.d:ro
   db:
     image: postgres:16-alpine
     ports:

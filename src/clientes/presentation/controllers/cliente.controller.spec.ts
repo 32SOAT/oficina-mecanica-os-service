@@ -132,20 +132,6 @@ describe('ClienteController', () => {
     );
   });
 
-  it('returns the auth snapshot for a document', async () => {
-    findClienteByDocumentoUseCase.execute.mockResolvedValue(clienteDomain);
-
-    const result = await controller.consultaAuth({
-      documento: clienteDomain.documento.toString(),
-    });
-
-    expect(result).toEqual({
-      id: clienteDomain.id,
-      documento: clienteDomain.documento.toString(),
-      deletedAt: clienteDomain.deletedAt,
-    });
-  });
-
   it('finds one client by documento', async () => {
     const findClienteByDocumentDto = {
       documento: clienteDomain.documento.toString(),

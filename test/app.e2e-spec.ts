@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { SagaClient } from '../src/saga/saga.client';
 
 describe('SagaClient', () => {
-  const client = new SagaClient();
+  const client = new SagaClient({} as never);
 
   beforeEach(() => {
     jest.restoreAllMocks();
@@ -41,7 +41,7 @@ describe('SagaClient', () => {
   it('reports when the other service is down', async () => {
     jest.spyOn(global, 'fetch').mockRejectedValue(new Error('offline'));
 
-    await expect(client.abrirDiagnostico('1')).rejects.toThrow(
+    await expect(client.exigirPagamentoAprovado('1')).rejects.toThrow(
       'Serviço indisponível',
     );
   });

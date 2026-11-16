@@ -5,19 +5,21 @@ import { appConfig, envValidationSchema, AppConfig } from './env/app.config';
 import { typeOrmConfig } from './env/database.config';
 import { jwtConfig, JwtConfig } from './env/jwt.config';
 import { resendConfig, ResendConfig } from './env/resend.config';
+import { SqsConfig, sqsConfig } from './env/sqs.config';
 
 export interface ConfigType {
   app: AppConfig;
   database: TypeOrmModuleOptions;
   jwt: JwtConfig;
   resend: ResendConfig;
+  sqs: SqsConfig;
 }
 
 @Global()
 @Module({
   imports: [
     NestConfigModule.forRoot({
-      load: [appConfig, typeOrmConfig, jwtConfig, resendConfig],
+      load: [appConfig, typeOrmConfig, jwtConfig, resendConfig, sqsConfig],
       validationSchema: envValidationSchema,
       validationOptions: {
         abortEarly: true,

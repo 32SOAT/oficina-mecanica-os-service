@@ -25,6 +25,8 @@ describe('Create OS metrics after transaction', () => {
     });
     const transaction = {
       runInTransaction: jest.fn().mockReturnValue(committed),
+      processSagaResult: jest.fn(),
+      findSagaStatus: jest.fn(),
     } as OrdemServicoTransactionPort;
     const result = new CreateOrdemServicoUseCase(
       transaction,
@@ -43,6 +45,8 @@ describe('Create OS metrics after transaction', () => {
     const error = new Error('rollback');
     const transaction = {
       runInTransaction: jest.fn().mockRejectedValue(error),
+      processSagaResult: jest.fn(),
+      findSagaStatus: jest.fn(),
     } as OrdemServicoTransactionPort;
     await expect(
       new CreateOrdemServicoUseCase(transaction, events, metrics).execute(
@@ -59,6 +63,8 @@ describe('Create OS metrics after transaction', () => {
     });
     const transaction = {
       runInTransaction: jest.fn().mockResolvedValue(output),
+      processSagaResult: jest.fn(),
+      findSagaStatus: jest.fn(),
     } as OrdemServicoTransactionPort;
     await expect(
       new CreateOrdemServicoUseCase(transaction, events, metrics).execute(

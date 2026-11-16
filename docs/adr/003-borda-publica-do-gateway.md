@@ -10,7 +10,7 @@
 
 O API Gateway é a porta única. Na fase 3, `POST /auth/cpf` ia para a Lambda e `ANY /{proxy+}` levava o restante ao monólito. Não havia uma rota por endpoint.
 
-Na fase 4 o fluxo atravessa três serviços. A OS conduz a saga. Billing e execução não são chamados pela pessoa: a OS os chama depois de gravar o status, com `x-saga-token`. A Lambda consulta o cliente na OS pelo mesmo tipo de chamada, em `POST /api/v1/clientes/consulta-auth`.
+Na fase 4 o fluxo atravessa três serviços. A OS conduz a saga. Billing e execução não são chamados pela pessoa: a OS os chama depois de gravar o status, com `x-saga-token`. A autenticação por CPF ocorre na própria OS, sem acesso de outro serviço ao banco de clientes.
 
 O que uma pessoa abre é outro conjunto. O dono do veículo autentica com CPF. O administrador entra pelo login da OS. Os dois usam o checkout e a cobrança da retirada. O cartão não chega ao nosso servidor: o Brick do Mercado Pago troca o cartão por um token no navegador, e o Access Token fica só no billing.
 
@@ -20,13 +20,13 @@ O gateway publica só a borda humana. Não cadastramos cada rota interna.
 
 | Entrada | Destino |
 | --- | --- |
-| `POST /auth/cpf` | Lambda |
+| `POST /api/v1/auth/cpf` | OS, pelo proxy geral |
 | `GET /api/v1/pagamentos/{osId}/checkout` e `POST /api/v1/pagamentos/{osId}/cobrar` | Billing |
 | `ANY /{proxy+}` | OS: login de administrador, cadastro, ordem, health e Swagger |
 
 Checkout e cobrança não têm authorizer. O dono do veículo e o administrador usam a mesma página.
 
-Orçamento, execução, abertura do pagamento, confirmação, recusa e a consulta de cliente da Lambda ficam fora do gateway. A OS e a Lambda chamam esses endereços direto, com o token da saga.
+Orçamento, execução, abertura do pagamento, confirmação e recusa ficam fora do gateway. A OS chama esses endereços direto, com o token da saga.
 
 ## HTTPS
 
@@ -48,6 +48,6 @@ O trecho sem TLS é o salto do API Gateway até o NLB. A integração está em `
 
 **Publicar também orçamento e execução.** A borda ficaria com o token da saga. Quem alcança o gateway poderia chamar a saga se o token vazasse. Essas chamadas não são de pessoa.
 
-**Criptografar o corpo ou o JWT (JWE) além do HTTPS.** O navegador, a Lambda e a OS teriam de cifrar e decifrar cada mensagem. O TLS da borda já esconde o conteúdo no caminho até o gateway. O cartão já não passa por nós.
+**Criptografar o corpo ou o JWT (JWE) além do HTTPS.** O navegador e a OS teriam de cifrar e decifrar cada mensagem. O TLS da borda já esconde o conteúdo no caminho até o gateway. O cartão já não passa por nós.
 
 **VPC Link entre o gateway e o balanceador.** Tiraria o NLB da internet. O recorte desta fase não inclui VPC Link, certificado nem listener HTTPS. O passo simples, quando a nuvem estiver no ar, é HTTPS no NLB.
