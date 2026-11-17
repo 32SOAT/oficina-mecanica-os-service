@@ -10,7 +10,7 @@
 
 O API Gateway é a porta única. Na fase 3, `POST /auth/cpf` ia para a Lambda e `ANY /{proxy+}` levava o restante ao monólito. Não havia uma rota por endpoint.
 
-Na fase 4 o fluxo atravessa três serviços. A OS conduz a saga. Billing e execução não são chamados pela pessoa: a OS os chama depois de gravar o status, com `x-saga-token`. A autenticação por CPF ocorre na própria OS, sem acesso de outro serviço ao banco de clientes. A porta que o cliente já usa continua `POST /auth/cpf` na Lambda. A Lambda não assina token: ela chama `POST /api/v1/auth/cpf` na OS e devolve o JWT que a OS assinou.
+Na fase 4 o fluxo atravessa três serviços. A OS conduz a saga. Billing e execução não são chamados pela pessoa: a OS os chama depois de gravar o status, com `x-saga-token`. A autenticação por CPF ocorre na própria OS, sem acesso de outro serviço ao banco de clientes.
 
 O que uma pessoa abre é outro conjunto. O dono do veículo autentica com CPF. O administrador entra pelo login da OS. Os dois usam o checkout e a cobrança da retirada. O cartão não chega ao nosso servidor: o Brick do Mercado Pago troca o cartão por um token no navegador, e o Access Token fica só no billing.
 
@@ -20,9 +20,9 @@ O gateway publica só a borda humana. Não cadastramos cada rota interna.
 
 | Entrada | Destino |
 | --- | --- |
-| `POST /auth/cpf` | Lambda. A Lambda chama `POST /api/v1/auth/cpf` na OS e devolve o JWT assinado pela OS |
+| `POST /api/v1/auth/cpf` | OS, pelo proxy geral |
 | `GET /api/v1/pagamentos/{osId}/checkout` e `POST /api/v1/pagamentos/{osId}/cobrar` | Billing |
-| `ANY /{proxy+}` | OS: login de administrador, `POST /api/v1/auth/cpf`, cadastro, ordem, health e Swagger |
+| `ANY /{proxy+}` | OS: login de administrador, cadastro, ordem, health e Swagger |
 
 Checkout e cobrança não têm authorizer. O dono do veículo e o administrador usam a mesma página.
 
