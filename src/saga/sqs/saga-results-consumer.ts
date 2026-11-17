@@ -19,6 +19,7 @@ import {
 } from '../contracts/saga-message';
 import { SagaResultProcessor } from '../saga-result.processor';
 import { SQS_CLIENT } from './sqs-client.module';
+import { traceSagaMessage } from './saga-trace';
 
 @Injectable()
 export class SagaResultsConsumer implements OnModuleInit, OnModuleDestroy {
@@ -94,7 +95,9 @@ export class SagaResultsConsumer implements OnModuleInit, OnModuleDestroy {
         );
         for (const message of response.Messages ?? []) {
           try {
-            await this.processMessage(message);
+            await traceSagaMessage('saga.result', message, () =>
+              this.processMessage(message),
+            );
           } catch (error) {
             const reason =
               error instanceof Error ? error.message : String(error);
