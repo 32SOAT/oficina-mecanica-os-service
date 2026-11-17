@@ -34,6 +34,12 @@ Os recursos AWS próprios e a ordem de configuração estão em [infra/aws/READM
 
 `.github/workflows/deploy.yml` executa lint, cobertura, build, publica imagem imutável no ECR e faz o rollout em `homolog`/`main`. O deploy só inicia com `DEPLOY_ENABLED=true` nas variables do repositório; as demais variables/secrets ficam nos GitHub Environments `homologacao`/`producao`. O workflow requer `AWS_REGION`, `AWS_ACCOUNT_ID`, `EKS_CLUSTER_NAME`, `DEPLOY_ROLE_ARN`, `ECR_REPOSITORY_URL` e as URLs das três filas como variables. Os secrets são `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SECRET`, `RESEND_API_KEY` e `SAGA_TOKEN`. A role de deploy precisa de ECR push, `eks:DescribeCluster` e acesso Kubernetes ao namespace `oficina-mecanica`; a role Pod Identity vinculada ao ServiceAccount `oficina-os` precisa somente das permissões SQS da OS. O ECR, as roles, o cluster, o namespace e as filas precisam existir antes da ativação. Após o rollout e o health externo, o deploy publica `/oficina/<ambiente>/services/os-nlb-hostname` no SSM. O API Gateway da plataforma consome esse contrato no próximo plan/apply revisado.
 
+### Deploy automatizado em cluster temporário
+
+[![Deploy Kubernetes (kind)](https://github.com/32SOAT/oficina-mecanica-os-service/actions/workflows/deploy-kind.yml/badge.svg)](https://github.com/32SOAT/oficina-mecanica-os-service/actions/workflows/deploy-kind.yml)
+
+`.github/workflows/deploy-kind.yml` roda em todo PR e em `homolog`/`main`, sem depender da AWS. Ele executa o lint e os testes com cobertura, constrói a imagem, cria um cluster Kubernetes com `kind`, aplica `kubernetes/overlays/minikube`, espera as migrations e o rollout e confere o health de dentro do cluster. Exemplo: [execução de 17/11/2026](https://github.com/32SOAT/oficina-mecanica-os-service/actions/runs/44021840516).
+
 ## Por que Saga orquestrada
 
 A Saga é orquestrada, e o orquestrador é este serviço.
