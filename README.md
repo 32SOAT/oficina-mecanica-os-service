@@ -66,6 +66,32 @@ terraform apply \
 
 Configure os outputs `*_queue_url` nos serviços e `SQS_REGION` para a região escolhida. Em AWS, deixe `SQS_ENDPOINT_URL` vazio/ausente e use credenciais temporárias da role do serviço, sem colocar chaves AWS no `.env`.
 
+## Observabilidade
+
+O serviço envia traces e logs para o Datadog, a mesma ferramenta da Fase 3.
+
+- **Traces:** o `dd-trace` é carregado na inicialização (`--require dd-trace/init`). Cada etapa da Saga é um trace só, que atravessa as filas: a OS envia o comando, o Billing ou a Execução processa, e a OS aplica o resultado dentro do span `saga.result` (`src/saga/sqs/saga-trace.ts`).
+- **Logs:** saem em JSON com o identificador do trace (`dd.trace_id`), então cada log leva ao seu trace. O nível sai como texto (`error`, `warn`), que é como o Datadog reconhece o status.
+- **Métricas de negócio:** `oficina.ordem_servico.criada` e `oficina.ordem_servico.tempo_medio_fase`, enviadas quando `BUSINESS_METRICS_ENABLED=true`.
+- **Infraestrutura:** CPU, memória, pods indisponíveis e reinícios por serviço, coletados pelo Agent no cluster.
+- **Alertas:** erros 5xx, falha no envio de e-mail e falha em etapa da Saga. Este último usa o log `Etapa da saga falhou`, que traz `sagaId`, `osId` e o motivo. Os três avisam por e-mail.
+
+No Kubernetes, `kubernetes/base/deployment.yaml` aponta o tracer para o Agent do nó (`DD_AGENT_HOST`) e define `DD_SERVICE=oficina-os`; `DD_ENV` e `DD_VERSION` vêm do `scripts/deploy-kubernetes.sh`. Sem Agent, o serviço roda igual e não envia nada.
+
+Os valores do Agent, o dashboard e os monitores ficam em `kubernetes/datadog` no repositório [oficina-mecanica-infra-k8s](https://github.com/32SOAT/oficina-mecanica-infra-k8s).
+
+O dashboard no ambiente local, depois de algumas execuções do BDD:
+
+![Dashboard do Datadog com volume de OS, tempo por fase, latência, requisições, erros 5xx e falhas de e-mail](docs/observabilidade/dashboard.png)
+
+![Painéis da Saga: etapas por serviço, duração e etapas com falha](docs/observabilidade/dashboard-saga.png)
+
+![Painéis de infraestrutura: CPU, memória, pods indisponíveis e reinícios por serviço](docs/observabilidade/dashboard-infra.png)
+
+Uma etapa da Saga num trace só: a OS envia o comando para a fila, a Execução processa e publica o resultado, e a OS aplica o resultado.
+
+![Trace de uma etapa da Saga passando pela OS, pelas filas e pela Execução](docs/observabilidade/trace-saga.png)
+
 ## Execução local
 
 Suba os três bancos e os três serviços. Billing e execução precisam estar no ar antes de percorrer uma ordem.
@@ -100,3 +126,14 @@ O login de administrador continua em `POST /api/v1/auth/login` (`admin@oficina.c
 O workflow `.github/workflows/bdd.yml` sobe Floci, Postgres isolados da OS e do Billing, DynamoDB local da Execução e os três serviços. O teste percorre cobrança aprovada e recusada pelo endpoint público do Billing usando um mock HTTP determinístico do Mercado Pago. Também força falhas na segunda etapa da Saga e confere `COMPENSADA`, status da ordem e reabertura do diagnóstico ou reparo na Execução. Execute localmente, a partir do diretório que contém os três repositórios, com `bash oficina-mecanica-os-service/scripts/run-bdd-ci.sh`. O runner precisa de Docker Compose, Node.js 22 e portas 3001, 3002, 3003, 3099, 4566, 5433, 5435 e 8000 livres.
 
 No CI, o PR usa os branches `feat/billing-saga-sqs` e `feat/execution-saga-sqs` enquanto a Saga ainda não estiver em `main` nos serviços irmãos; pushes em `homolog`/`main` usam `main`. As variables `BILLING_BDD_REF` e `EXECUTION_BDD_REF` permitem selecionar outras refs durante a integração.
+
+## Cluster local (minikube)
+
+O overlay `kubernetes/overlays/minikube` reaproveita o `kubernetes/base` e acrescenta só o que é local: imagem, variáveis, o job de migrations e o SQS local (Floci) com as filas da Saga. Aplique este serviço primeiro, porque o Billing e a Execução usam o mesmo SQS.
+
+```bash
+minikube image build -t oficina-mecanica-os-service:local .
+kubectl kustomize --load-restrictor LoadRestrictionsNone kubernetes/overlays/minikube | kubectl apply -f -
+```
+
+A opção `--load-restrictor` permite ao overlay ler o script das filas e o job de migrations, que ficam fora da pasta dele. A API responde em `http://$(minikube ip):30081`.
