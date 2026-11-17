@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: floci
+spec:
+  selector:
+    app: floci
+  ports:
+    - name: aws
+      port: 4566
+      targetPort: aws
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: floci
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: floci
+  template:
+    metadata:
+      labels:
+        app: floci
+    spec:
+      # Without this, Kubernetes injects FLOCI_PORT and floci reads it as its port setting.
+      enableServiceLinks: false
+      containers:
+        - name: floci
+          image: floci/floci:latest-compat
+          ports:
+            - name: aws
+              containerPort: 4566
+          env:
+            - name: FLOCI_DEFAULT_REGION
+              value: us-east-1
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: AWS_ACCESS_KEY_ID
+              value: test
+            - name: AWS_SECRET_ACCESS_KEY
+              value: test
+            - name: FLOCI_SERVICES_CLOUDWATCHMETRICS_ENABLED
+              value: "false"
+            - name: FLOCI_SERVICES_CLOUDWATCHLOGS_ENABLED
+              value: "false"
+          readinessProbe:
+            tcpSocket:
+              port: aws
+            periodSeconds: 5
+          volumeMounts:
+            - name: init
+              mountPath: /etc/floci/init/ready.d
+              readOnly: true
+      volumes:
+        - name: init
+          configMap:
+            name: floci-init
+            defaultMode: 0755

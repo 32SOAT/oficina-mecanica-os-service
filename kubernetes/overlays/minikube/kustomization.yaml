@@ -1,0 +1,74 @@
+# Build with: kubectl kustomize --load-restrictor LoadRestrictionsNone kubernetes/overlays/minikube
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: oficina-mecanica
+resources:
+  - namespace.yaml
+  - ../../base
+  - ../../base/migration-job.yaml
+  - floci.yaml
+images:
+  - name: oficina-os
+    newName: oficina-mecanica-os-service
+    newTag: local
+configMapGenerator:
+  - name: oficina-os-config
+    literals:
+      - NODE_ENV=production
+      - APP_PORT=3000
+      - POSTGRES_HOST=oficina-os-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=oficina_os
+      - POSTGRES_SYNC=0
+      - POSTGRES_SSL=0
+      - POSTGRES_SSL_REJECT_UNAUTHORIZED=0
+      - JWT_EXPIRES_IN=1h
+      - RESEND_FROM=onboarding@resend.dev
+      - NOTIFICACAO_EMAIL_MECANICOS=local@example.com
+      - NOTIFICACAO_EMAIL_ADMIN=local@example.com
+      - BILLING_BASE_URL=http://oficina-billing
+      - EXECUCAO_BASE_URL=http://oficina-execution
+      - SQS_ENDPOINT_URL=http://floci:4566
+      - SQS_REGION=us-east-1
+      - SQS_BILLING_COMMAND_QUEUE_URL=http://floci:4566/000000000000/oficina-billing-commands.fifo
+      - SQS_EXECUTION_COMMAND_QUEUE_URL=http://floci:4566/000000000000/oficina-execution-commands.fifo
+      - SQS_RESULTS_QUEUE_URL=http://floci:4566/000000000000/oficina-os-results.fifo
+      - SQS_OUTBOX_RELAY_ENABLED=true
+      - SQS_RESULTS_CONSUMER_ENABLED=true
+      - BUSINESS_METRICS_ENABLED=true
+      - DD_ENV=local
+      - DD_VERSION=local
+  - name: floci-init
+    files:
+      - ../../../floci/init/ready.d/create-saga-queues.sh
+secretGenerator:
+  - name: oficina-os-secret
+    literals:
+      - POSTGRES_USER=oficina
+      - POSTGRES_PASSWORD=oficina-local
+      - JWT_SECRET=jwt-secret-apenas-para-desenvolvimento-local
+      - RESEND_API_KEY=re_chave-ficticia-para-desenvolvimento-local
+      - SAGA_TOKEN=oficina-local
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+patches:
+  - target:
+      kind: Service
+      name: oficina-os
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 30081
+  - target:
+      kind: Job
+      name: oficina-os-migrations
+    patch: |-
+      - op: add
+        path: /spec/template/spec/initContainers
+        value:
+          - name: wait-for-postgres
+            image: postgres:16-alpine
+            command: [sh, -c, until pg_isready -h oficina-os-postgres; do sleep 2; done]
