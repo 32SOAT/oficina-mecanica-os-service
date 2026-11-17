@@ -34,4 +34,27 @@ export const envValidationSchema = Joi.object({
   RESEND_DEV_REDIRECT_TO: Joi.string().email().optional(),
   NOTIFICACAO_EMAIL_MECANICOS: Joi.string().email().required(),
   NOTIFICACAO_EMAIL_ADMIN: Joi.string().email().required(),
+  SQS_ENDPOINT_URL: Joi.string().uri().allow('').optional(),
+  SQS_REGION: Joi.string().default('us-east-1'),
+  SQS_BILLING_COMMAND_QUEUE_URL: Joi.string()
+    .uri()
+    .when('SQS_OUTBOX_RELAY_ENABLED', {
+      is: true,
+      then: Joi.required(),
+    }),
+  SQS_EXECUTION_COMMAND_QUEUE_URL: Joi.string()
+    .uri()
+    .when('SQS_OUTBOX_RELAY_ENABLED', {
+      is: true,
+      then: Joi.required(),
+    }),
+  SQS_RESULTS_QUEUE_URL: Joi.string()
+    .uri()
+    .when('SQS_OUTBOX_RELAY_ENABLED', { is: true, then: Joi.required() })
+    .when('SQS_RESULTS_CONSUMER_ENABLED', { is: true, then: Joi.required() }),
+  SQS_OUTBOX_RELAY_ENABLED: Joi.boolean().default(false),
+  SQS_RESULTS_CONSUMER_ENABLED: Joi.boolean().default(false),
+  SQS_OUTBOX_POLL_INTERVAL_MS: Joi.number().integer().min(250).default(1000),
+  SQS_OUTBOX_BATCH_SIZE: Joi.number().integer().min(1).max(10).default(10),
+  SQS_OUTBOX_LEASE_MS: Joi.number().integer().min(1000).default(30000),
 });

@@ -1,8 +1,26 @@
 import {
   BadGatewayException,
   BadRequestException,
+  Inject,
   Injectable,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { StatusOrdemServico } from '../ordens-de-servico/domain/status-ordem-servico.enum';
+import {
+  ORDEM_SERVICO_TRANSACTION_PORT,
+  OrdemServicoTransactionPort,
+  SagaCommandDestination,
+  SagaCommandStepInput,
+  SagaExecutionInput,
+} from '../ordens-de-servico/application/ports/ordem-servico-transaction.port';
+import { SagaCommandMessage, SagaCommandType } from './contracts/saga-message';
+
+export type SagaAcceptedResponse = {
+  osId: string;
+  sagaId: string;
+  commandId: string;
+  status: 'PENDENTE';
+};
 
 export type PagamentoLocal = {
   osId: string;
@@ -14,98 +32,213 @@ export type PagamentoLocal = {
 export class SagaClient {
   private readonly billing =
     process.env.BILLING_BASE_URL ?? 'http://localhost:3002';
-  private readonly execucao =
-    process.env.EXECUCAO_BASE_URL ?? 'http://localhost:3003';
   private readonly token = process.env.SAGA_TOKEN ?? 'oficina-local';
 
-  abrirDiagnostico(osId: string): Promise<void> {
-    return this.post(`${this.execucao}/api/v1/execucoes`, {
+  constructor(
+    @Inject(ORDEM_SERVICO_TRANSACTION_PORT)
+    private readonly transaction: OrdemServicoTransactionPort,
+  ) {}
+
+  abrirDiagnostico(
+    osId: string,
+    requestedBy: string,
+  ): Promise<SagaAcceptedResponse> {
+    return this.startCommand({
       osId,
-      etapa: 'DIAGNOSTICO',
+      requestedBy,
+      action: 'INICIAR_DIAGNOSTICO',
+      expectedNextStatus: StatusOrdemServico.EmDiagnostico,
+      commandType: SagaCommandType.ExecutionOpen,
+      destination: 'EXECUCAO',
+      payload: { etapa: 'DIAGNOSTICO' },
     });
   }
 
-  concluirDiagnostico(osId: string): Promise<void> {
-    return this.post(`${this.execucao}/api/v1/execucoes/${osId}/concluir`, {
-      etapa: 'DIAGNOSTICO',
+  async gerarOrcamento(
+    osId: string,
+    requestedBy: string,
+  ): Promise<SagaAcceptedResponse> {
+    return this.transaction.runInTransaction(async (tx) => {
+      await tx.lockOsAndEnsureNoActiveSaga(osId);
+      const os = await tx.loadOs(osId, { itensServico: true, itensPeca: true });
+      os.avancarStatus(StatusOrdemServico.AguardandoAprovacao);
+      tx.refreshValorTotal(os);
+      const accepted = await this.createCommand(tx, {
+        osId,
+        requestedBy,
+        action: 'GERAR_ORCAMENTO',
+        context: { valorTotal: os.valorTotal },
+        commandType: SagaCommandType.ExecutionComplete,
+        destination: 'EXECUCAO',
+        payload: { etapa: 'DIAGNOSTICO' },
+      });
+      return accepted;
     });
   }
 
-  gerarOrcamento(osId: string, valorTotal: number): Promise<void> {
-    return this.post(`${this.billing}/api/v1/orcamentos`, { osId, valorTotal });
-  }
-
-  aprovarOrcamento(osId: string): Promise<void> {
-    return this.post(`${this.billing}/api/v1/orcamentos/${osId}/aprovar`, {});
-  }
-
-  reprovarOrcamento(osId: string): Promise<void> {
-    return this.post(`${this.billing}/api/v1/orcamentos/${osId}/reprovar`, {});
-  }
-
-  iniciarReparo(osId: string): Promise<void> {
-    return this.post(`${this.execucao}/api/v1/execucoes`, {
+  aprovarOrcamento(
+    osId: string,
+    requestedBy: string,
+  ): Promise<SagaAcceptedResponse> {
+    return this.startCommand({
       osId,
-      etapa: 'REPARO',
+      requestedBy,
+      action: 'APROVAR_ORCAMENTO',
+      expectedNextStatus: StatusOrdemServico.Aprovada,
+      commandType: SagaCommandType.BillingQuoteApprove,
+      destination: 'BILLING',
+      payload: {},
     });
   }
 
-  concluirReparo(osId: string): Promise<void> {
-    return this.post(`${this.execucao}/api/v1/execucoes/${osId}/concluir`, {
-      etapa: 'REPARO',
+  reprovarOrcamento(
+    osId: string,
+    requestedBy: string,
+  ): Promise<SagaAcceptedResponse> {
+    return this.startCommand({
+      osId,
+      requestedBy,
+      action: 'REPROVAR_ORCAMENTO',
+      expectedNextStatus: StatusOrdemServico.Reprovada,
+      commandType: SagaCommandType.BillingQuoteReject,
+      destination: 'BILLING',
+      payload: {},
     });
   }
 
-  abrirPagamento(osId: string, valorTotal: number): Promise<void> {
-    return this.post(`${this.billing}/api/v1/pagamentos`, { osId, valorTotal });
+  iniciarReparo(
+    osId: string,
+    requestedBy: string,
+  ): Promise<SagaAcceptedResponse> {
+    return this.startCommand({
+      osId,
+      requestedBy,
+      action: 'INICIAR_REPARO',
+      expectedNextStatus: StatusOrdemServico.EmExecucao,
+      commandType: SagaCommandType.ExecutionOpen,
+      destination: 'EXECUCAO',
+      payload: { etapa: 'REPARO' },
+    });
   }
 
-  async exigirPagamentoAprovado(osId: string): Promise<void> {
-    const pagamento = await this.get<PagamentoLocal>(
+  async finalizar(
+    osId: string,
+    requestedBy: string,
+  ): Promise<SagaAcceptedResponse> {
+    return this.transaction.runInTransaction(async (tx) => {
+      await tx.lockOsAndEnsureNoActiveSaga(osId);
+      const os = await tx.loadOs(osId, { itensServico: true, itensPeca: true });
+      os.avancarStatus(StatusOrdemServico.Finalizada);
+      return this.createCommand(tx, {
+        osId,
+        requestedBy,
+        action: 'FINALIZAR',
+        context: { valorTotal: os.valorTotal },
+        commandType: SagaCommandType.ExecutionComplete,
+        destination: 'EXECUCAO',
+        payload: { etapa: 'REPARO' },
+      });
+    });
+  }
+
+  exigirPagamentoAprovado(osId: string): Promise<void> {
+    return this.get<PagamentoLocal>(
       `${this.billing}/api/v1/pagamentos/${osId}`,
-    );
-    if (pagamento.status !== 'APROVADO') {
-      throw new BadRequestException(
-        'O veículo só sai da oficina depois do pagamento confirmado',
-      );
-    }
+    ).then((pagamento) => {
+      if (pagamento.status !== 'APROVADO') {
+        throw new BadRequestException(
+          'O veículo só sai da oficina depois do pagamento confirmado',
+        );
+      }
+    });
   }
 
-  private async post(url: string, body: unknown): Promise<void> {
-    await this.request(url, {
-      method: 'POST',
-      body: JSON.stringify(body),
+  private startCommand(input: {
+    osId: string;
+    requestedBy: string;
+    action: string;
+    expectedNextStatus: StatusOrdemServico;
+    commandType: SagaCommandType;
+    destination: SagaCommandDestination;
+    payload: SagaCommandMessage['payload'];
+  }): Promise<SagaAcceptedResponse> {
+    return this.transaction.runInTransaction(async (tx) => {
+      await tx.lockOsAndEnsureNoActiveSaga(input.osId);
+      const os = await tx.loadOs(input.osId, {
+        itensServico: true,
+        itensPeca: true,
+      });
+      try {
+        os.avancarStatus(input.expectedNextStatus);
+      } catch (error) {
+        throw error instanceof Error ? error : new BadRequestException();
+      }
+      return this.createCommand(tx, input);
     });
+  }
+
+  private async createCommand(
+    tx: Parameters<
+      Parameters<OrdemServicoTransactionPort['runInTransaction']>[0]
+    >[0],
+    input: {
+      osId: string;
+      requestedBy: string;
+      action: string;
+      commandType: SagaCommandType;
+      destination: SagaCommandDestination;
+      payload: SagaCommandMessage['payload'];
+      context?: Record<string, unknown>;
+    },
+  ): Promise<SagaAcceptedResponse> {
+    const sagaId = randomUUID();
+    const commandId = randomUUID();
+    const command: SagaCommandMessage = {
+      messageId: randomUUID(),
+      commandId,
+      sagaId,
+      osId: input.osId,
+      occurredAt: new Date().toISOString(),
+      correlationId: sagaId,
+      causationId: null,
+      schemaVersion: 1,
+      type: input.commandType,
+      payload: input.payload,
+    } as SagaCommandMessage;
+    const execution: SagaExecutionInput = {
+      id: sagaId,
+      osId: input.osId,
+      action: input.action,
+      requestedBy: input.requestedBy,
+      ...(input.context ? { context: input.context } : {}),
+    };
+    const step: SagaCommandStepInput = {
+      command,
+      sequence: 1,
+      destination: input.destination,
+    };
+    await tx.createSagaCommand({ execution, step });
+    return { osId: input.osId, sagaId, commandId, status: 'PENDENTE' };
   }
 
   private async get<T>(url: string): Promise<T> {
-    const payload = await this.request(url, { method: 'GET' });
-    return payload as T;
-  }
-
-  private async request(url: string, init: RequestInit): Promise<unknown> {
     let response: Response;
     try {
       response = await fetch(url, {
-        ...init,
-        headers: {
-          'content-type': 'application/json',
-          'x-saga-token': this.token,
-        },
+        method: 'GET',
+        headers: { 'x-saga-token': this.token },
       });
     } catch {
       throw new BadGatewayException(`Serviço indisponível em ${url}`);
     }
-
     if (!response.ok) {
       throw new BadGatewayException(
         `Falha ao chamar ${url}: ${response.status}`,
       );
     }
-
     const text = await response.text();
-    if (!text) return undefined;
+    if (!text) return undefined as T;
     const parsed = JSON.parse(text) as { data?: unknown };
-    return parsed.data ?? parsed;
+    return (parsed.data ?? parsed) as T;
   }
 }

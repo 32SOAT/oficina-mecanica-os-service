@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: oficina-os-migrations
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 1800
+  template:
+    metadata:
+      labels:
+        app: oficina-os
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrations
+          image: oficina-os
+          command: [node, node_modules/typeorm/cli.js, migration:run, -d, dist/database/data-source.js]
+          envFrom:
+            - configMapRef:
+                name: oficina-os-config
+            - secretRef:
+                name: oficina-os-secret

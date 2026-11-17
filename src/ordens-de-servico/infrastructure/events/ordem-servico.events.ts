@@ -1,6 +1,7 @@
 import { StatusOrdemServico } from '../../domain/status-ordem-servico.enum';
 
 export const StatusAlteradoEventName = 'os.status.alterado';
+export const StatusNotificacaoEventName = 'os.status.notificacao';
 export const OsCriadaEventName = 'os.criada';
 export const DiagnosticoIniciadoEventName = 'os.diagnostico.iniciado';
 export const OrcamentoGeradoEventName = 'os.orcamento.gerado';

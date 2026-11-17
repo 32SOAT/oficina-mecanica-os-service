@@ -9,12 +9,9 @@ export type ChangePasswordInput = {
   newPassword: string;
 };
 
-export type TokenPayload = {
-  sub: string;
-  role: 'admin';
-  email: string;
-  username: string;
-};
+export type TokenPayload =
+  | { sub: string; role: 'admin'; email: string; username: string }
+  | { sub: string; role: 'cliente'; cpf: string };
 
 export type {
   AuthenticatedUserReadModel,

@@ -48,3 +48,17 @@ Funcionalidade: Fluxo da ordem entre OS, execução e billing
     E o orçamento no billing fica "REPROVADO"
     Quando o administrador cancela a ordem
     Então a ordem fica "CANCELADA"
+
+  Cenário: Falha ao gerar orçamento reabre o diagnóstico
+    Dado uma ordem em diagnóstico sem peça disponível
+    E o billing tem um orçamento divergente
+    Quando a geração do orçamento falha e é compensada
+    Então a ordem fica "EM_DIAGNOSTICO"
+    E o diagnóstico está aberto na execução
+
+  Cenário: Falha ao abrir pagamento reabre o reparo
+    Dado uma ordem em execução com peça em estoque
+    E o billing tem um pagamento divergente
+    Quando a abertura do pagamento falha e é compensada
+    Então a ordem fica "EM_EXECUCAO"
+    E o reparo está aberto na execução

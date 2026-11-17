@@ -54,6 +54,7 @@ describe('Ordem servico use cases', () => {
 
   const events: jest.Mocked<OrdemServicoEventsPort> = {
     emitStatusAlterado: jest.fn(),
+    emitStatusNotificacao: jest.fn(),
     emitOsCriada: jest.fn(),
     emitOrcamentoGerado: jest.fn(),
     emitOrcamentoAprovado: jest.fn(),
@@ -62,6 +63,9 @@ describe('Ordem servico use cases', () => {
   };
 
   const txOps: jest.Mocked<OrdemServicoTransactionalOperations> = {
+    lockOsAndEnsureNoActiveSaga: jest.fn(),
+    createSagaCommand: jest.fn(),
+    appendSagaCommand: jest.fn(),
     findClienteIdByDocumento: jest.fn(),
     findVeiculoIdForCliente: jest.fn(),
     buildItensServico: jest.fn(),
@@ -82,6 +86,8 @@ describe('Ordem servico use cases', () => {
 
   const transaction: OrdemServicoTransactionPort = {
     runInTransaction: jest.fn(async (work) => work(txOps)),
+    processSagaResult: jest.fn(),
+    findSagaStatus: jest.fn(),
   };
 
   beforeEach(() => jest.clearAllMocks());
@@ -190,6 +196,9 @@ describe('Ordem servico use cases', () => {
         status: StatusOrdemServico.EmDiagnostico,
       })
       .mockResolvedValueOnce(osOutput);
+    txOps.loadOs.mockResolvedValue(
+      makeOsHandle({ status: StatusOrdemServico.EmDiagnostico }),
+    );
     const useCase = new SubstituirItensOrdemServicoUseCase(query, transaction);
     const input = {
       itensServico: [{ servicoId: 1 }],

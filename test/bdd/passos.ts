@@ -1,11 +1,19 @@
-import { Before, Given, Then, When } from '@cucumber/cucumber';
+import {
+  Before,
+  Given,
+  Then,
+  When,
+  setDefaultTimeout,
+} from '@cucumber/cucumber';
 import {
   acaoOs,
+  acaoOsCompensada,
   confirmarPagamento,
   etapasDaExecucao,
   garantirServicos,
   ordem,
   prepararOrdem,
+  prepararFalhaBilling,
   recusarPagamento,
   reporPeca,
   statusDaOrdem,
@@ -15,6 +23,8 @@ import {
   valorTotalDaOrdem,
   valorTotalDoOrcamento,
 } from './oficina';
+
+setDefaultTimeout(60_000);
 
 Before(async function () {
   await garantirServicos();
@@ -38,6 +48,42 @@ Given('uma ordem aguardando peça', async function () {
 
 Given('uma ordem aguardando aprovação', async function () {
   await prepararOrdem({ quantidadeFisica: 5, ate: 'aprovacao' });
+});
+
+Given('uma ordem em execução com peça em estoque', async function () {
+  await prepararOrdem({ quantidadeFisica: 5, ate: 'execucao' });
+});
+
+Given('o billing tem um orçamento divergente', async function () {
+  await prepararFalhaBilling('orcamento');
+});
+
+Given('o billing tem um pagamento divergente', async function () {
+  await prepararFalhaBilling('pagamento');
+});
+
+When('a geração do orçamento falha e é compensada', async function () {
+  await acaoOsCompensada('gerar-orcamento');
+});
+
+When('a abertura do pagamento falha e é compensada', async function () {
+  await acaoOsCompensada('finalizar');
+});
+
+Then('o diagnóstico está aberto na execução', async function () {
+  const item = (await etapasDaExecucao()).find(
+    (etapa) => etapa.etapa === 'DIAGNOSTICO',
+  );
+  if (item?.status !== 'ABERTA')
+    throw new Error(`Diagnóstico esperado ABERTA, veio ${item?.status}`);
+});
+
+Then('o reparo está aberto na execução', async function () {
+  const item = (await etapasDaExecucao()).find(
+    (etapa) => etapa.etapa === 'REPARO',
+  );
+  if (item?.status !== 'ABERTA')
+    throw new Error(`Reparo esperado ABERTA, veio ${item?.status}`);
 });
 
 When('o administrador inicia o diagnóstico', async function () {

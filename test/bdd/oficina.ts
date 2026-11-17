@@ -40,7 +40,13 @@ export async function garantirServicos(): Promise<void> {
 
 export async function prepararOrdem(opcoes: {
   quantidadeFisica: number;
-  ate: 'recebida' | 'diagnostico' | 'aprovacao' | 'pecas' | 'finalizada';
+  ate:
+    | 'recebida'
+    | 'diagnostico'
+    | 'aprovacao'
+    | 'pecas'
+    | 'execucao'
+    | 'finalizada';
 }): Promise<void> {
   const adminToken = await loginAdmin();
   const documento = cpfUnico();
@@ -77,6 +83,7 @@ export async function prepararOrdem(opcoes: {
     return;
   }
   await acaoOs('POST', `${ordemAtual.id}/iniciar-execucao`);
+  if (opcoes.ate === 'execucao') return;
   await acaoOs('POST', `${ordemAtual.id}/finalizar`);
 }
 
@@ -85,9 +92,44 @@ export async function acaoOs(
   caminho: string,
   perfil: 'admin' | 'cliente' = 'admin',
 ): Promise<void> {
-  await chamar(method, `${osBase}/api/v1/ordens/${caminho}`, {
+  const corpo = await chamar(method, `${osBase}/api/v1/ordens/${caminho}`, {
     token: perfil === 'admin' ? ordem().adminToken : ordem().clienteToken,
   });
+  const resposta = dados(corpo);
+  if (typeof resposta.sagaId === 'string') {
+    await aguardarSaga(resposta.sagaId, 'CONCLUIDA');
+  }
+}
+
+export async function acaoOsCompensada(caminho: string): Promise<void> {
+  const corpo = await chamar(
+    'POST',
+    `${osBase}/api/v1/ordens/${ordem().id}/${caminho}`,
+    {
+      token: ordem().adminToken,
+    },
+  );
+  await aguardarSaga(texto(dados(corpo), 'sagaId'), 'COMPENSADA');
+}
+
+async function aguardarSaga(sagaId: string, esperado: string): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const corpo = await chamar(
+      'GET',
+      `${osBase}/api/v1/ordens/${ordem().id}/sagas/${sagaId}`,
+      { token: ordem().adminToken },
+    );
+    const status = texto(dados(corpo), 'status');
+    if (status === esperado) return;
+    if (
+      ['FALHA', 'FALHA_COMPENSACAO', 'COMPENSADA', 'CONCLUIDA'].includes(status)
+    ) {
+      throw new Error(`Saga ${sagaId}: esperado ${esperado}, veio ${status}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  throw new Error(`Saga ${sagaId} não chegou a ${esperado} em 30 segundos`);
 }
 
 export async function tentarOs(
@@ -126,18 +168,39 @@ export async function reporPeca(quantidade = 1): Promise<void> {
 }
 
 export async function confirmarPagamento(): Promise<void> {
-  await chamar(
-    'POST',
-    `${billingBase}/api/v1/pagamentos/${ordem().id}/confirmar`,
-    { saga: true },
-  );
+  await cobrarNoCheckout('bdd-approved');
 }
 
 export async function recusarPagamento(): Promise<void> {
+  await cobrarNoCheckout('bdd-rejected');
+}
+
+async function cobrarNoCheckout(token: string): Promise<void> {
   await chamar(
     'POST',
-    `${billingBase}/api/v1/pagamentos/${ordem().id}/recusar`,
-    { saga: true },
+    `${billingBase}/api/v1/pagamentos/${ordem().id}/cobrar`,
+    {
+      body: {
+        token,
+        payment_method_id: 'visa',
+        payment_type_id: 'credit_card',
+        installments: 1,
+        payer: { email: 'bdd@example.com' },
+      },
+    },
+  );
+}
+
+export async function prepararFalhaBilling(
+  tipo: 'orcamento' | 'pagamento',
+): Promise<void> {
+  await chamar(
+    'POST',
+    `${billingBase}/api/v1/${tipo === 'orcamento' ? 'orcamentos' : 'pagamentos'}`,
+    {
+      saga: true,
+      body: { osId: ordem().id, valorTotal: 1 },
+    },
   );
 }
 
