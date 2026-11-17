@@ -17,6 +17,7 @@ describe('main bootstrap', () => {
         .mockReturnValue({ get: jest.fn().mockReturnValue({ port: 3333 }) }),
       getHttpAdapter: jest.fn(),
       useLogger: jest.fn(),
+      enableShutdownHooks: jest.fn(),
       useGlobalPipes: jest.fn(),
       enableVersioning: jest.fn(),
       setGlobalPrefix: jest.fn(),
@@ -50,6 +51,7 @@ describe('main bootstrap', () => {
     expect(appMock.useLogger).toHaveBeenCalledWith(
       appMock.get.mock.results[0].value,
     );
+    expect(appMock.enableShutdownHooks).toHaveBeenCalledTimes(1);
     expect(configureApp).toHaveBeenCalledWith(appMock);
     expect(configureSwagger).toHaveBeenCalledWith(appMock);
     expect(appMock.listen).toHaveBeenCalledWith(3333);
@@ -61,6 +63,7 @@ describe('main bootstrap', () => {
         .fn()
         .mockReturnValue({ get: jest.fn().mockReturnValue(undefined) }),
       useLogger: jest.fn(),
+      enableShutdownHooks: jest.fn(),
       listen: jest.fn().mockResolvedValue(undefined),
     };
     const create = jest.fn().mockResolvedValue(appMock);
