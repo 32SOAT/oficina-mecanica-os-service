@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   ORDEM_SERVICO_EVENTS_PORT,
   OrdemServicoEventsPort,
@@ -7,10 +7,12 @@ import {
   ORDEM_SERVICO_TRANSACTION_PORT,
   OrdemServicoTransactionPort,
 } from '../ordens-de-servico/application/ports/ordem-servico-transaction.port';
-import { SagaResultMessage } from './contracts/saga-message';
+import { SagaResultMessage, SagaStepStatus } from './contracts/saga-message';
 
 @Injectable()
 export class SagaResultProcessor {
+  private readonly logger = new Logger(SagaResultProcessor.name);
+
   constructor(
     @Inject(ORDEM_SERVICO_TRANSACTION_PORT)
     private readonly transaction: OrdemServicoTransactionPort,
@@ -21,6 +23,11 @@ export class SagaResultProcessor {
   async process(result: SagaResultMessage): Promise<{ duplicate: boolean }> {
     const processed = await this.transaction.processSagaResult(result);
     if (processed.duplicate) return { duplicate: true };
+    if (result.outcome === SagaStepStatus.Falha) {
+      this.logger.error(
+        `Etapa da saga falhou. sagaId=${result.sagaId} osId=${result.osId} code=${result.payload.code} message=${result.payload.message}`,
+      );
+    }
 
     for (const change of processed.statusChanges) {
       this.events.emitStatusNotificacao(
