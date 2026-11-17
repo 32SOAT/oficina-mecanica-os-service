@@ -4,6 +4,7 @@
 | --- | --- |
 | Data | 21/10/2026 |
 | Status | Aceita |
+| Atualização | 17/11/2026: comunicação por SQS, cobertura de testes e o que veio depois da decisão |
 | Decisores | Grupo 32SOAT: Allan Kayan Gadioli Alves, Gustavo de Matos Parizi, Isaac Bruno Siqueira de Souza, João Ricardo Bianchini Vieira, Juliana Silveira Amorim do Nascimento |
 
 ## Contexto
@@ -19,7 +20,7 @@ Há dois significados diferentes para a palavra serviço:
 
 ## Decisão
 
-Ficam três aplicações. Cada uma publica a própria API, sobe o próprio banco e não acessa o banco das outras. A OS orquestra o fluxo por HTTP. O header `x-saga-token` identifica essa chamada de serviço para serviço. A cobrança da retirada é Checkout Transparente via Orders, feita pelo billing.
+Ficam três aplicações. Cada uma publica a própria API, sobe o próprio banco e não acessa o banco das outras. A OS orquestra o fluxo por comandos em filas SQS FIFO ([ADR 004](./004-operacao-saga-sqs.md)). A consulta do pagamento na entrega continua por HTTP, identificada pelo header `x-saga-token`. A cobrança da retirada é Checkout Transparente via Orders, feita pelo billing.
 
 ### OS Service
 
@@ -29,7 +30,7 @@ Dono da ficha da ordem e do que a ficha precisa para nascer e ser cobrada.
 - Catálogo de mão de obra e estoque, inclusive reserva, espera de peça e baixa.
 - Status canônico, histórico e notificações por e-mail.
 - Cálculo de `valorTotal` dentro da transação da ordem.
-- Condução do fluxo: depois de gravar o status, chama execução e billing.
+- Condução do fluxo: grava a Saga e a outbox na mesma transação, envia os comandos à execução e ao billing e aplica o resultado ao status.
 
 O catálogo de mão de obra permanece aqui. O preço entra no total do orçamento junto com as peças. Mover esse cadastro para a execução obrigaria a OS a consultar outro serviço só para precificar, e misturaria tabela de preço com o registro de que um diagnóstico ou um reparo está aberto.
 
@@ -68,7 +69,7 @@ O banco sobe no repositório da aplicação que o usa. `oficina-mecanica-infra-d
 
 A porta 5432 permanece com o banco do monólito. OS e billing ficam em Postgres. A execução usa DynamoDB também no ambiente local, pela imagem `amazon/dynamodb-local`. A chave da tabela é `osId` + `etapa`. Na AWS, `DYNAMODB_ENDPOINT` sai da configuração e o mesmo código fala com a tabela real.
 
-Nenhum serviço abre conexão com o banco de outro. O que precisa cruzar a fronteira viaja no corpo HTTP: `osId`, etapa e `valorTotal`.
+Nenhum serviço abre conexão com o banco de outro. O que precisa cruzar a fronteira viaja na mensagem do comando ou no corpo HTTP: `osId`, etapa e `valorTotal`.
 
 ## Consequências
 
@@ -76,8 +77,8 @@ Nenhum serviço abre conexão com o banco de outro. O que precisa cruzar a front
 - A OS continua o único lugar que responde "em que ponto está o carro".
 - O catálogo e o estoque continuam consistentes com o total do orçamento, porque os três são gravados na mesma transação.
 - A execução já guarda só etapa e status, então a tabela DynamoDB não carrega cliente, peça ou preço.
-- Enquanto a chamada remota acontece depois do commit da OS, uma falha de rede deixa o status gravado e a etapa remota pendente. As criações remotas são idempotentes para permitir nova tentativa.
-- O requisito de 80% de cobertura da fase 4 ainda não está cumprido na OS: o domínio foi copiado sem a suíte antiga de testes.
+- O comando sai pela outbox, gravada na mesma transação da Saga. Até o resultado voltar, o status da ordem fica no estado anterior (consistência eventual). Os participantes são idempotentes por `commandId`, o que permite reentrega.
+- A cobertura mínima de 80% da fase 4 é exigida pelo Jest (`coverageThreshold`) e conferida pelo SonarCloud no CI dos três serviços.
 
 ## Alternativas consideradas
 
@@ -89,6 +90,6 @@ Nenhum serviço abre conexão com o banco de outro. O que precisa cruzar a front
 
 **Cobrar antes do reparo.** O enunciado segue abertura, orçamento, aprovação e execução. A cobrança acontece na retirada, depois de `FINALIZADA` e antes de `ENTREGUE`.
 
-## Evolução prevista
+## O que veio depois
 
-Mensageria (SQS), deploy em Kubernetes e autenticação por CPF na própria OS. Essas etapas não alteram o dono de cada dado definido aqui.
+A mensageria por SQS ([ADR 004](./004-operacao-saga-sqs.md)), os manifestos e o pipeline de deploy em Kubernetes e a autenticação por CPF na própria OS. Nenhuma dessas etapas alterou o dono de cada dado definido aqui.

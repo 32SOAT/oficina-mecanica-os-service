@@ -34,6 +34,16 @@ Os recursos AWS próprios e a ordem de configuração estão em [infra/aws/READM
 
 `.github/workflows/deploy.yml` executa lint, cobertura, build, publica imagem imutável no ECR e faz o rollout em `homolog`/`main`. O deploy só inicia com `DEPLOY_ENABLED=true` nas variables do repositório; as demais variables/secrets ficam nos GitHub Environments `homologacao`/`producao`. O workflow requer `AWS_REGION`, `AWS_ACCOUNT_ID`, `EKS_CLUSTER_NAME`, `DEPLOY_ROLE_ARN`, `ECR_REPOSITORY_URL` e as URLs das três filas como variables. Os secrets são `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SECRET`, `RESEND_API_KEY` e `SAGA_TOKEN`. A role de deploy precisa de ECR push, `eks:DescribeCluster` e acesso Kubernetes ao namespace `oficina-mecanica`; a role Pod Identity vinculada ao ServiceAccount `oficina-os` precisa somente das permissões SQS da OS. O ECR, as roles, o cluster, o namespace e as filas precisam existir antes da ativação. Após o rollout e o health externo, o deploy publica `/oficina/<ambiente>/services/os-nlb-hostname` no SSM. O API Gateway da plataforma consome esse contrato no próximo plan/apply revisado.
 
+## Por que Saga orquestrada
+
+A Saga é orquestrada, e o orquestrador é este serviço.
+
+- O fluxo da oficina é uma sequência (diagnóstico, orçamento, aprovação, execução e cobrança) e o status canônico da ordem já mora na OS. Com um orquestrador, a decisão de avançar ou de compensar fica num lugar só.
+- Na coreografia, cada serviço reagiria ao evento do anterior. O status ficaria repartido entre os três e a compensação seria mais difícil de mostrar e de testar.
+- O preço da escolha é a OS ser o ponto central do fluxo. A outbox reduz esse risco: o comando é gravado na mesma transação da Saga, então não se perde se a OS cair antes de publicá-lo.
+
+A decisão e as alternativas estão na [ADR 001](docs/adr/001-divisao-dos-servicos-e-banco-por-aplicacao.md). O Billing e a Execução são participantes: recebem comandos pela fila e devolvem o resultado.
+
 ## Mensageria da Saga
 
 O provisionamento cria três filas FIFO (`billing-commands`, `execution-commands` e `os-results`), cada uma com DLQ FIFO, redrive após cinco recebimentos e criptografia SSE-SQS. A OS grava execução, etapa e outbox na mesma transação. O relay publica comandos com `osId` como grupo FIFO e `commandId` como deduplicação; além da ordem FIFO, a OS valida no banco a sequência de cada etapa e só cria a próxima após sucesso da anterior. O consumidor de resultados valida correlação, persiste a resposta e só então confirma a mensagem. O status canônico e o histórico avançam na mesma transação da OS somente após o resultado remoto de sucesso. Há consistência eventual: até o resultado ser processado, o status de negócio permanece no estado anterior.
@@ -65,6 +75,21 @@ terraform apply \
 ```
 
 Configure os outputs `*_queue_url` nos serviços e `SQS_REGION` para a região escolhida. Em AWS, deixe `SQS_ENDPOINT_URL` vazio/ausente e use credenciais temporárias da role do serviço, sem colocar chaves AWS no `.env`.
+
+## Testes e cobertura
+
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=32SOAT_oficina-mecanica-os-service&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=32SOAT_oficina-mecanica-os-service)
+[![Cobertura](https://sonarcloud.io/api/project_badges/measure?project=32SOAT_oficina-mecanica-os-service&metric=coverage)](https://sonarcloud.io/component_measures?id=32SOAT_oficina-mecanica-os-service&metric=coverage)
+
+O CI (`.github/workflows/ci.yml`) roda os testes com cobertura e o SonarCloud em todo PR. O Jest falha abaixo de 80% (`coverageThreshold` no `package.json`) e o pipeline espera o quality gate do SonarCloud.
+
+Cobertura do Jest na [execução do CI de 17/11/2026](https://github.com/32SOAT/oficina-mecanica-os-service/actions/runs/44019074043), com 676 testes:
+
+| Instruções | Ramos | Funções | Linhas |
+| --- | --- | --- | --- |
+| 95,32% | 84,21% | 90,79% | 95,65% |
+
+Para conferir localmente: `npm run test:cov`.
 
 ## Observabilidade
 
