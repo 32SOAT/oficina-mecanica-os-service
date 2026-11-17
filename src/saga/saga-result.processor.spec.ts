@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { SagaResultProcessor } from './saga-result.processor';
 import { SagaResultMessage } from './contracts/saga-message';
 import { StatusOrdemServico } from '../ordens-de-servico/domain/status-ordem-servico.enum';
@@ -81,6 +82,40 @@ describe('SagaResultProcessor', () => {
     });
     expect(events.emitStatusNotificacao).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [false, 1],
+    [true, 0],
+  ])(
+    'logs a failed step for alerting unless it is a duplicate (%s)',
+    async (duplicate, expectedLogs) => {
+      const error = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      const processor = new SagaResultProcessor(
+        {
+          processSagaResult: jest.fn().mockResolvedValue({
+            duplicate,
+            statusChanges: [],
+            domainEvents: [],
+          }),
+        } as never,
+        {} as never,
+      );
+
+      await processor.process({
+        ...result,
+        outcome: 'FALHA',
+        payload: { code: 'QUOTE_MISMATCH', message: 'x', retryable: false },
+      });
+
+      expect(error).toHaveBeenCalledTimes(expectedLogs);
+      if (expectedLogs) {
+        expect(error).toHaveBeenCalledWith(
+          `Etapa da saga falhou. sagaId=${result.sagaId} osId=${result.osId} code=QUOTE_MISMATCH message=x`,
+        );
+      }
+      error.mockRestore();
+    },
+  );
 
   it.each([
     ['ORCAMENTO_APROVADO', 'emitOrcamentoAprovado'],

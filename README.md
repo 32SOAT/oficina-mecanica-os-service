@@ -34,6 +34,16 @@ Os recursos AWS próprios e a ordem de configuração estão em [infra/aws/READM
 
 `.github/workflows/deploy.yml` executa lint, cobertura, build, publica imagem imutável no ECR e faz o rollout em `homolog`/`main`. O deploy só inicia com `DEPLOY_ENABLED=true` nas variables do repositório; as demais variables/secrets ficam nos GitHub Environments `homologacao`/`producao`. O workflow requer `AWS_REGION`, `AWS_ACCOUNT_ID`, `EKS_CLUSTER_NAME`, `DEPLOY_ROLE_ARN`, `ECR_REPOSITORY_URL` e as URLs das três filas como variables. Os secrets são `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SECRET`, `RESEND_API_KEY` e `SAGA_TOKEN`. A role de deploy precisa de ECR push, `eks:DescribeCluster` e acesso Kubernetes ao namespace `oficina-mecanica`; a role Pod Identity vinculada ao ServiceAccount `oficina-os` precisa somente das permissões SQS da OS. O ECR, as roles, o cluster, o namespace e as filas precisam existir antes da ativação. Após o rollout e o health externo, o deploy publica `/oficina/<ambiente>/services/os-nlb-hostname` no SSM. O API Gateway da plataforma consome esse contrato no próximo plan/apply revisado.
 
+## Por que Saga orquestrada
+
+A Saga é orquestrada, e o orquestrador é este serviço.
+
+- O fluxo da oficina é uma sequência (diagnóstico, orçamento, aprovação, execução e cobrança) e o status canônico da ordem já mora na OS. Com um orquestrador, a decisão de avançar ou de compensar fica num lugar só.
+- Na coreografia, cada serviço reagiria ao evento do anterior. O status ficaria repartido entre os três e a compensação seria mais difícil de mostrar e de testar.
+- O preço da escolha é a OS ser o ponto central do fluxo. A outbox reduz esse risco: o comando é gravado na mesma transação da Saga, então não se perde se a OS cair antes de publicá-lo.
+
+A decisão e as alternativas estão na [ADR 001](docs/adr/001-divisao-dos-servicos-e-banco-por-aplicacao.md). O Billing e a Execução são participantes: recebem comandos pela fila e devolvem o resultado.
+
 ## Mensageria da Saga
 
 O provisionamento cria três filas FIFO (`billing-commands`, `execution-commands` e `os-results`), cada uma com DLQ FIFO, redrive após cinco recebimentos e criptografia SSE-SQS. A OS grava execução, etapa e outbox na mesma transação. O relay publica comandos com `osId` como grupo FIFO e `commandId` como deduplicação; além da ordem FIFO, a OS valida no banco a sequência de cada etapa e só cria a próxima após sucesso da anterior. O consumidor de resultados valida correlação, persiste a resposta e só então confirma a mensagem. O status canônico e o histórico avançam na mesma transação da OS somente após o resultado remoto de sucesso. Há consistência eventual: até o resultado ser processado, o status de negócio permanece no estado anterior.
@@ -65,6 +75,47 @@ terraform apply \
 ```
 
 Configure os outputs `*_queue_url` nos serviços e `SQS_REGION` para a região escolhida. Em AWS, deixe `SQS_ENDPOINT_URL` vazio/ausente e use credenciais temporárias da role do serviço, sem colocar chaves AWS no `.env`.
+
+## Testes e cobertura
+
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=32SOAT_oficina-mecanica-os-service&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=32SOAT_oficina-mecanica-os-service)
+[![Cobertura](https://sonarcloud.io/api/project_badges/measure?project=32SOAT_oficina-mecanica-os-service&metric=coverage)](https://sonarcloud.io/component_measures?id=32SOAT_oficina-mecanica-os-service&metric=coverage)
+
+O CI (`.github/workflows/ci.yml`) roda os testes com cobertura e o SonarCloud em todo PR. O Jest falha abaixo de 80% (`coverageThreshold` no `package.json`) e o pipeline espera o quality gate do SonarCloud.
+
+Cobertura do Jest na [execução do CI de 17/11/2026](https://github.com/32SOAT/oficina-mecanica-os-service/actions/runs/44019074043), com 676 testes:
+
+| Instruções | Ramos | Funções | Linhas |
+| --- | --- | --- | --- |
+| 95,32% | 84,21% | 90,79% | 95,65% |
+
+Para conferir localmente: `npm run test:cov`.
+
+## Observabilidade
+
+O serviço envia traces e logs para o Datadog, a mesma ferramenta da Fase 3.
+
+- **Traces:** o `dd-trace` é carregado na inicialização (`--require dd-trace/init`). Cada etapa da Saga é um trace só, que atravessa as filas: a OS envia o comando, o Billing ou a Execução processa, e a OS aplica o resultado dentro do span `saga.result` (`src/saga/sqs/saga-trace.ts`).
+- **Logs:** saem em JSON com o identificador do trace (`dd.trace_id`), então cada log leva ao seu trace. O nível sai como texto (`error`, `warn`), que é como o Datadog reconhece o status.
+- **Métricas de negócio:** `oficina.ordem_servico.criada` e `oficina.ordem_servico.tempo_medio_fase`, enviadas quando `BUSINESS_METRICS_ENABLED=true`.
+- **Infraestrutura:** CPU, memória, pods indisponíveis e reinícios por serviço, coletados pelo Agent no cluster.
+- **Alertas:** erros 5xx, falha no envio de e-mail e falha em etapa da Saga. Este último usa o log `Etapa da saga falhou`, que traz `sagaId`, `osId` e o motivo. Os três avisam por e-mail.
+
+No Kubernetes, `kubernetes/base/deployment.yaml` aponta o tracer para o Agent do nó (`DD_AGENT_HOST`) e define `DD_SERVICE=oficina-os`; `DD_ENV` e `DD_VERSION` vêm do `scripts/deploy-kubernetes.sh`. Sem Agent, o serviço roda igual e não envia nada.
+
+Os valores do Agent, o dashboard e os monitores ficam em `kubernetes/datadog` no repositório [oficina-mecanica-infra-k8s](https://github.com/32SOAT/oficina-mecanica-infra-k8s).
+
+O dashboard no ambiente local, depois de algumas execuções do BDD:
+
+![Dashboard do Datadog com volume de OS, tempo por fase, latência, requisições, erros 5xx e falhas de e-mail](docs/observabilidade/dashboard.png)
+
+![Painéis da Saga: etapas por serviço, duração e etapas com falha](docs/observabilidade/dashboard-saga.png)
+
+![Painéis de infraestrutura: CPU, memória, pods indisponíveis e reinícios por serviço](docs/observabilidade/dashboard-infra.png)
+
+Uma etapa da Saga num trace só: a OS envia o comando para a fila, a Execução processa e publica o resultado, e a OS aplica o resultado.
+
+![Trace de uma etapa da Saga passando pela OS, pelas filas e pela Execução](docs/observabilidade/trace-saga.png)
 
 ## Execução local
 
@@ -100,3 +151,14 @@ O login de administrador continua em `POST /api/v1/auth/login` (`admin@oficina.c
 O workflow `.github/workflows/bdd.yml` sobe Floci, Postgres isolados da OS e do Billing, DynamoDB local da Execução e os três serviços. O teste percorre cobrança aprovada e recusada pelo endpoint público do Billing usando um mock HTTP determinístico do Mercado Pago. Também força falhas na segunda etapa da Saga e confere `COMPENSADA`, status da ordem e reabertura do diagnóstico ou reparo na Execução. Execute localmente, a partir do diretório que contém os três repositórios, com `bash oficina-mecanica-os-service/scripts/run-bdd-ci.sh`. O runner precisa de Docker Compose, Node.js 22 e portas 3001, 3002, 3003, 3099, 4566, 5433, 5435 e 8000 livres.
 
 No CI, o PR usa os branches `feat/billing-saga-sqs` e `feat/execution-saga-sqs` enquanto a Saga ainda não estiver em `main` nos serviços irmãos; pushes em `homolog`/`main` usam `main`. As variables `BILLING_BDD_REF` e `EXECUTION_BDD_REF` permitem selecionar outras refs durante a integração.
+
+## Cluster local (minikube)
+
+O overlay `kubernetes/overlays/minikube` reaproveita o `kubernetes/base` e acrescenta só o que é local: imagem, variáveis, o job de migrations e o SQS local (Floci) com as filas da Saga. Aplique este serviço primeiro, porque o Billing e a Execução usam o mesmo SQS.
+
+```bash
+minikube image build -t oficina-mecanica-os-service:local .
+kubectl kustomize --load-restrictor LoadRestrictionsNone kubernetes/overlays/minikube | kubectl apply -f -
+```
+
+A opção `--load-restrictor` permite ao overlay ler o script das filas e o job de migrations, que ficam fora da pasta dele. A API responde em `http://$(minikube ip):30081`.

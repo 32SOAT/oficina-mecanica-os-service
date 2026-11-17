@@ -120,7 +120,7 @@ describe('SagaResultsConsumer', () => {
     );
     consumer.onModuleInit();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    consumer.onModuleDestroy();
+    await consumer.onModuleDestroy();
 
     const receive = client.send.mock.calls
       .map(([command]) => command)
@@ -135,5 +135,26 @@ describe('SagaResultsConsumer', () => {
       WaitTimeSeconds: 20,
       VisibilityTimeout: 60,
     });
+  });
+
+  it('finishes the in-flight poll before closing the client', async () => {
+    client.send.mockImplementation((command: unknown) =>
+      command instanceof ReceiveMessageCommand
+        ? new Promise((resolve) =>
+            setTimeout(
+              () => resolve({ Messages: [message(JSON.stringify(result))] }),
+              10,
+            ),
+          )
+        : Promise.resolve({}),
+    );
+
+    consumer.onModuleInit();
+    const closing = consumer.onModuleDestroy();
+    expect(client.destroy).not.toHaveBeenCalled();
+    await closing;
+
+    expect(processor.process).toHaveBeenCalledWith(result);
+    expect(client.destroy).toHaveBeenCalledTimes(1);
   });
 });

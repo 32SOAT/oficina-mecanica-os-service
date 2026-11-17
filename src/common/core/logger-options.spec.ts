@@ -18,7 +18,7 @@ describe('logger options', () => {
     rmSync(directory, { recursive: true, force: true });
   });
 
-  it('keeps production JSON, redacts headers and preserves correlation fields', () => {
+  it('keeps production JSON with a level label, redacts headers and preserves correlation fields', () => {
     process.env.NODE_ENV = 'production';
     process.env.LOG_FILE_ENABLED = 'true';
     process.env.LOG_FILE_PATH = join(directory, 'unused', 'api.log');
@@ -46,6 +46,7 @@ describe('logger options', () => {
     );
     expect(output).not.toContain('secret');
     expect(JSON.parse(output)).toMatchObject({
+      level: 'info',
       req: {
         method: 'GET',
         url: '/health',

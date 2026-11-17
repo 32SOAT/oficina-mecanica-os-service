@@ -19,12 +19,13 @@ import {
 } from '../contracts/saga-message';
 import { SagaResultProcessor } from '../saga-result.processor';
 import { SQS_CLIENT } from './sqs-client.module';
+import { traceSagaMessage } from './saga-trace';
 
 @Injectable()
 export class SagaResultsConsumer implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SagaResultsConsumer.name);
   private running = false;
-  private abortController?: AbortController;
+  private polling?: Promise<void>;
 
   constructor(
     @Inject(SQS_CLIENT) private readonly client: SQSClient,
@@ -41,13 +42,13 @@ export class SagaResultsConsumer implements OnModuleInit, OnModuleDestroy {
       );
     }
     this.running = true;
-    this.abortController = new AbortController();
-    void this.consume(sqs.resultsQueueUrl);
+    this.polling = this.consume(sqs.resultsQueueUrl);
   }
 
-  onModuleDestroy(): void {
+  // An aborted long poll stays open on the queue and takes the next message.
+  async onModuleDestroy(): Promise<void> {
     this.running = false;
-    this.abortController?.abort();
+    await this.polling;
     this.client.destroy();
   }
 
@@ -90,11 +91,12 @@ export class SagaResultsConsumer implements OnModuleInit, OnModuleDestroy {
             WaitTimeSeconds: 20,
             VisibilityTimeout: 60,
           }),
-          { abortSignal: this.abortController?.signal },
         );
         for (const message of response.Messages ?? []) {
           try {
-            await this.processMessage(message);
+            await traceSagaMessage('saga.result', message, () =>
+              this.processMessage(message),
+            );
           } catch (error) {
             const reason =
               error instanceof Error ? error.message : String(error);
