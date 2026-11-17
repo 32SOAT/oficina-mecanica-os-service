@@ -16,6 +16,7 @@ umask 077
 printf 'NODE_ENV=production\nAPP_PORT=3000\n' > "$work_dir/config.env"
 for key in POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_SSL POSTGRES_SSL_REJECT_UNAUTHORIZED POSTGRES_SYNC JWT_EXPIRES_IN BILLING_BASE_URL EXECUCAO_BASE_URL SQS_BILLING_COMMAND_QUEUE_URL SQS_EXECUTION_COMMAND_QUEUE_URL SQS_RESULTS_QUEUE_URL SQS_OUTBOX_RELAY_ENABLED SQS_RESULTS_CONSUMER_ENABLED; do printf '%s=%s\n' "$key" "${!key}" >> "$work_dir/config.env"; done
 printf 'SQS_REGION=%s\n' "${AWS_REGION}" >> "$work_dir/config.env"
+printf 'DD_ENV=%s\nDD_VERSION=%s\nBUSINESS_METRICS_ENABLED=true\n' "$DEPLOY_ENV" "${GITHUB_SHA:-local}" >> "$work_dir/config.env"
 for key in POSTGRES_USER POSTGRES_PASSWORD JWT_SECRET RESEND_API_KEY SAGA_TOKEN; do printf '%s=%s\n' "$key" "${!key}" >> "$work_dir/secret.env"; done
 kubectl -n "$namespace" create configmap "$service_name-config" --from-env-file="$work_dir/config.env" --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n "$namespace" create secret generic "$service_name-secret" --from-env-file="$work_dir/secret.env" --dry-run=client -o yaml | kubectl apply -f -
